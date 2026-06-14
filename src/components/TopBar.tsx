@@ -2,6 +2,7 @@ import type { ComponentType } from "react";
 import type { RGB } from "../types";
 import { Folder, Search, Album, Artist, MusicNote } from "./icons";
 import logo from "../assets/logo.svg";
+import logoGreen from "../assets/logo-green.svg";
 
 export type Mode = "folders" | "albums" | "artists" | "songs";
 
@@ -21,6 +22,7 @@ export function TopBar({
   onQuery,
   onPick,
   scanning,
+  powerSave,
 }: {
   accent: RGB;
   mode: Mode;
@@ -29,12 +31,13 @@ export function TopBar({
   onQuery: (q: string) => void;
   onPick: () => void;
   scanning: boolean;
+  powerSave: boolean;
 }) {
   const accentCss = `rgb(${accent.join(",")})`;
   return (
     <header className="flex h-[68px] shrink-0 items-center gap-4 pl-5 pr-5 lg:gap-8 lg:pl-9 lg:pr-7">
       <img
-        src={logo}
+        src={powerSave ? logoGreen : logo}
         alt="meusic"
         className="h-7 shrink-0 select-none lg:h-8"
         draggable={false}

@@ -16,6 +16,7 @@ import {
   VolumeMute,
   SlidersVertical,
   AudioLines,
+  Leaf,
 } from "./icons";
 
 /**
@@ -48,6 +49,8 @@ export function BottomBar({
   onEqChange,
   onEqPreset,
   onExpand,
+  powerSave,
+  onTogglePowerSave,
 }: {
   accent: RGB;
   track: Track | null;
@@ -72,6 +75,8 @@ export function BottomBar({
   onEqChange: (index: number, gainDb: number) => void;
   onEqPreset: (gains: number[]) => void;
   onExpand: () => void;
+  powerSave: boolean;
+  onTogglePowerSave: () => void;
 }) {
   const pct = duration > 0 ? (currentTime / duration) * 100 : 0;
   const fill = (p: number) =>
@@ -113,8 +118,8 @@ export function BottomBar({
                 ♪
               </div>
             )}
-            {/* Hover affordance: opens the full Now Playing view */}
-            {hasTrack && (
+            {/* Hover affordance: opens the full Now Playing view (off in power-save) */}
+            {hasTrack && !powerSave && (
               <div className="absolute inset-0 flex items-center justify-center bg-black/55 text-white opacity-0 transition-opacity duration-150 group-hover:opacity-100">
                 <AudioLines className="h-6 w-6" />
               </div>
@@ -183,6 +188,16 @@ export function BottomBar({
           <span className="hidden shrink-0 text-xs tabular-nums text-white/55 sm:inline">
             {fmtTime(currentTime)} / {fmtTime(duration)}
           </span>
+
+          <button
+            onClick={onTogglePowerSave}
+            title={powerSave ? "Hemat daya: aktif" : "Hemat daya: nonaktif"}
+            className={`shrink-0 rounded-full p-2 transition hover:bg-white/10 ${
+              powerSave ? "text-emerald-400" : "text-white/60"
+            }`}
+          >
+            <Leaf className="h-5 w-5" />
+          </button>
 
           <div className="relative shrink-0">
             <IconBtn active={showEq} onClick={onToggleEq} title="Equalizer">

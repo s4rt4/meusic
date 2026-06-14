@@ -11,6 +11,8 @@ import { usePlayer } from "./hooks/usePlayer";
 import { engine } from "./audio/engine";
 import { getCover, pickFolder, scanFolder } from "./lib/api";
 import { extractPalette } from "./lib/colors";
+import { fmtDurationLong } from "./lib/format";
+import { downscaleDataUri } from "./lib/image";
 import {
   buildFolderTree,
   groupByAlbum,
@@ -43,6 +45,9 @@ function App() {
   const [eqGains, setEqGains] = useState<number[]>(Array(6).fill(0));
   const [overlayOpen, setOverlayOpen] = useState(false);
   const [windowActive, setWindowActive] = useState(true);
+  const [powerSave, setPowerSave] = useState(
+    () => localStorage.getItem("meusic.powerSave") === "1"
+  );
 
   // Per-mode selection.
   const [selFolder, setSelFolder] = useState("");
@@ -101,15 +106,23 @@ function App() {
         setPalette(DEFAULT_PALETTE);
       }
     };
-    const cached = coverCache.current.get(currentPath);
+    const cache = coverCache.current;
+    const cached = cache.get(currentPath);
     if (cached !== undefined) {
       void apply(cached);
       return;
     }
     (async () => {
-      const cover = await getCover(currentPath).catch(() => null);
+      const raw = await getCover(currentPath).catch(() => null);
+      // Downscale before caching/displaying to keep memory bounded.
+      const cover = raw ? await downscaleDataUri(raw, 512) : null;
       if (id !== reqId.current) return;
-      coverCache.current.set(currentPath, cover);
+      cache.set(currentPath, cover);
+      // LRU-ish cap: drop oldest entries so the cache can't grow unbounded.
+      if (cache.size > 24) {
+        const oldest = cache.keys().next().value;
+        if (oldest !== undefined) cache.delete(oldest);
+      }
       void apply(cover);
     })();
   }, [currentPath]);
@@ -181,6 +194,18 @@ function App() {
     [player, viewTracks]
   );
 
+  // Header summary: count, total runtime, and (when meaningful) artist/album counts.
+  const summary = (() => {
+    const totalSec = viewTracks.reduce((a, t) => a + (t.duration || 0), 0);
+    const artists = new Set(viewTracks.map((t) => t.album_artist || t.artist)).size;
+    const albums = new Set(viewTracks.map((t) => t.album)).size;
+    const parts = [`${viewTracks.length} lagu`];
+    if (totalSec > 0) parts.push(fmtDurationLong(totalSec));
+    if (artists > 1) parts.push(`${artists} artis`);
+    if (albums > 1) parts.push(`${albums} album`);
+    return parts.join(" · ");
+  })();
+
   // Pause heavy animations (gradient + visualizer) when the window is unfocused
   // or minimized, to spare GPU/CPU in the background.
   useEffect(() => {
@@ -197,8 +222,16 @@ function App() {
     };
   }, []);
 
-  // Animations run only while playing AND the window is in the foreground.
-  const animationsActive = player.isPlaying && windowActive;
+  // Animations run only while playing, with the window focused, and power-save off.
+  const animationsActive = player.isPlaying && windowActive && !powerSave;
+
+  const togglePowerSave = useCallback(() => {
+    setPowerSave((p) => {
+      const next = !p;
+      localStorage.setItem("meusic.powerSave", next ? "1" : "0");
+      return next;
+    });
+  }, []);
 
   // Folder (normalized path) that contains the currently-playing track.
   const playingFolderPath = currentPath
@@ -210,7 +243,11 @@ function App() {
 
   return (
     <div className="relative flex h-screen w-screen flex-col overflow-hidden">
-      <GradientBackground palette={palette} active={animationsActive} />
+      <GradientBackground
+        palette={palette}
+        active={animationsActive}
+        enabled={!powerSave}
+      />
 
       <TopBar
         accent={accent}
@@ -220,6 +257,7 @@ function App() {
         onQuery={setQuery}
         onPick={handlePickFolder}
         scanning={scanning}
+        powerSave={powerSave}
       />
 
       <main className="min-h-0 flex-1 overflow-hidden px-6 pb-4 pt-1">
@@ -273,7 +311,7 @@ function App() {
                   <div className="truncate text-sm font-semibold text-white">
                     {viewTitle}
                   </div>
-                  <div className="text-xs text-white/45">{viewTracks.length} lagu</div>
+                  <div className="text-xs text-white/45">{summary}</div>
                 </div>
               </header>
               <div className="min-h-0 flex-1 overflow-y-auto">
@@ -318,11 +356,13 @@ function App() {
         onToggleEq={() => setShowEq((s) => !s)}
         onEqChange={handleEqChange}
         onEqPreset={handleEqPreset}
-        onExpand={() => setOverlayOpen(true)}
+        onExpand={() => !powerSave && setOverlayOpen(true)}
+        powerSave={powerSave}
+        onTogglePowerSave={togglePowerSave}
       />
 
       <NowPlayingOverlay
-        open={overlayOpen}
+        open={overlayOpen && !powerSave}
         onClose={() => setOverlayOpen(false)}
         track={player.current}
         coverUrl={coverUrl}

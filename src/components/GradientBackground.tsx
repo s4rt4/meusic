@@ -1,11 +1,12 @@
 import type { RGB } from "../types";
 import { rgb } from "../lib/colors";
 
+// Fewer, slightly smaller blobs + a smaller blur radius keep the look while
+// cutting GPU compositing cost during playback.
 const BLOBS = [
-  { top: "-12%", left: "-8%", size: "72vw", dur: "19s" },
-  { top: "28%", left: "52%", size: "64vw", dur: "25s" },
-  { top: "52%", left: "2%", size: "58vw", dur: "31s" },
-  { top: "-6%", left: "58%", size: "52vw", dur: "22s" },
+  { top: "-10%", left: "-8%", size: "68vw", dur: "28s" },
+  { top: "30%", left: "55%", size: "60vw", dur: "34s" },
+  { top: "54%", left: "6%", size: "56vw", dur: "40s" },
 ];
 
 /**
@@ -19,11 +20,19 @@ const BLOBS = [
 export function GradientBackground({
   palette,
   active,
+  enabled,
 }: {
   palette: RGB[];
   active: boolean;
+  enabled: boolean;
 }) {
   const colors = palette.length ? palette : ([[34, 34, 50]] as RGB[]);
+
+  // Power-saving: a flat dark background, no blurred blobs to composite.
+  if (!enabled) {
+    return <div className="fixed inset-0 -z-10 bg-[#0a0a10]" />;
+  }
+
   return (
     <div className="fixed inset-0 -z-10 overflow-hidden bg-[#07070b]">
       {BLOBS.map((b, i) => {
@@ -39,7 +48,7 @@ export function GradientBackground({
               height: b.size,
               borderRadius: "50%",
               background: `radial-gradient(circle, ${rgb(c, 0.85)} 0%, ${rgb(c, 0)} 68%)`,
-              filter: "blur(38px)",
+              filter: "blur(30px)",
               animation: `drift ${b.dur} ease-in-out infinite`,
               animationPlayState: active ? "running" : "paused",
               transition: "background 1.2s ease",
