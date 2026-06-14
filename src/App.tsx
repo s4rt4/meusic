@@ -12,6 +12,14 @@ import { useSettings } from "./hooks/useSettings";
 import { engine } from "./audio/engine";
 import { getCover, pickFolder, scanFolder, setTrayVisible } from "./lib/api";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { emit, listen } from "@tauri-apps/api/event";
+import {
+  MP_STATE,
+  MP_CMD,
+  MP_REQUEST,
+  type MiniState,
+  type MiniCmd,
+} from "./lib/miniState";
 import { extractPalette } from "./lib/colors";
 import { fmtDurationLong } from "./lib/format";
 import { downscaleDataUri } from "./lib/image";
@@ -85,6 +93,9 @@ function App() {
   const sessionRef = useRef<Session | null>(null);
   const settingsRef = useRef(settings);
   settingsRef.current = settings;
+  const playerRef = useRef(player);
+  playerRef.current = player;
+  const miniStateRef = useRef<MiniState | null>(null);
 
   // Sync tray icon visibility with the setting.
   useEffect(() => {
@@ -114,6 +125,48 @@ function App() {
     return () => {
       unClose?.();
       unResize?.();
+    };
+  }, []);
+
+  // Mini-player bridge: handle control commands and state requests from the
+  // tray popup (uses refs so listeners attach once).
+  useEffect(() => {
+    let unCmd: (() => void) | undefined;
+    let unReq: (() => void) | undefined;
+    listen<MiniCmd>(MP_CMD, (e) => {
+      const p = playerRef.current;
+      const c = e.payload;
+      switch (c.action) {
+        case "toggle":
+          p.toggle();
+          break;
+        case "next":
+          p.next();
+          break;
+        case "prev":
+          p.prev();
+          break;
+        case "seek":
+          p.seek(c.value);
+          break;
+        case "volume":
+          p.setVolume(c.value);
+          break;
+        case "show-main": {
+          const w = getCurrentWindow();
+          void w.show();
+          void w.unminimize();
+          void w.setFocus();
+          break;
+        }
+      }
+    }).then((u) => (unCmd = u));
+    listen(MP_REQUEST, () => {
+      if (miniStateRef.current) void emit(MP_STATE, miniStateRef.current);
+    }).then((u) => (unReq = u));
+    return () => {
+      unCmd?.();
+      unReq?.();
     };
   }, []);
 
@@ -242,6 +295,28 @@ function App() {
       void apply(cover);
     })();
   }, [currentPath]);
+
+  // Mini-player: keep a fresh snapshot and broadcast it on change + every 1s.
+  miniStateRef.current = {
+    hasTrack: player.current !== null,
+    title: player.current?.title ?? "meusic",
+    artist: player.current?.artist ?? "",
+    coverUrl,
+    isPlaying: player.isPlaying,
+    position: player.currentTime,
+    duration: player.duration,
+    volume: player.volume,
+    accent,
+  };
+  useEffect(() => {
+    if (miniStateRef.current) void emit(MP_STATE, miniStateRef.current);
+  }, [player.isPlaying, currentPath, player.duration, player.volume, coverUrl, accent]);
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      if (miniStateRef.current) void emit(MP_STATE, miniStateRef.current);
+    }, 1000);
+    return () => window.clearInterval(id);
+  }, []);
 
   const handlePickFolder = useCallback(async () => {
     const path = await pickFolder();

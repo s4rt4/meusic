@@ -250,13 +250,39 @@ fn get_cover(path: String) -> Option<String> {
     folder_cover(p)
 }
 
-/// Show / focus / unminimize the main window (from tray click or menu).
+/// Show / focus / unminimize the main window (from tray menu or mini-player).
 fn reveal_main(app: &tauri::AppHandle) {
     if let Some(w) = app.get_webview_window("main") {
         let _ = w.show();
         let _ = w.unminimize();
         let _ = w.set_focus();
     }
+}
+
+/// Toggle the tray mini-player popup, positioning it at the bottom-right of the
+/// primary monitor (just above the taskbar / tray area).
+fn toggle_mini(app: &tauri::AppHandle) {
+    let Some(mini) = app.get_webview_window("miniplayer") else {
+        return;
+    };
+    if mini.is_visible().unwrap_or(false) {
+        let _ = mini.hide();
+        return;
+    }
+    if let Ok(Some(mon)) = mini.primary_monitor() {
+        let msize = mon.size();
+        let mpos = mon.position();
+        let wsize = mini
+            .outer_size()
+            .unwrap_or(tauri::PhysicalSize::new(320, 412));
+        let margin = 12i32;
+        let taskbar = 56i32;
+        let x = mpos.x + msize.width as i32 - wsize.width as i32 - margin;
+        let y = mpos.y + msize.height as i32 - wsize.height as i32 - taskbar;
+        let _ = mini.set_position(tauri::PhysicalPosition::new(x, y));
+    }
+    let _ = mini.show();
+    let _ = mini.set_focus();
 }
 
 /// Toggle the system-tray icon's visibility (honors the user setting).
@@ -294,7 +320,7 @@ pub fn run() {
                         ..
                     } = event
                     {
-                        reveal_main(tray.app_handle());
+                        toggle_mini(tray.app_handle());
                     }
                 })
                 .build(app)?;
