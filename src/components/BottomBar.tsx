@@ -51,6 +51,7 @@ export function BottomBar({
   onExpand,
   powerSave,
   onTogglePowerSave,
+  volumeStep,
 }: {
   accent: RGB;
   track: Track | null;
@@ -77,6 +78,7 @@ export function BottomBar({
   onExpand: () => void;
   powerSave: boolean;
   onTogglePowerSave: () => void;
+  volumeStep: number;
 }) {
   const pct = duration > 0 ? (currentTime / duration) * 100 : 0;
   const fill = (p: number) =>
@@ -214,7 +216,14 @@ export function BottomBar({
             )}
           </div>
 
-          <div className="flex shrink-0 items-center gap-2">
+          <div
+            className="flex shrink-0 items-center gap-2"
+            onWheel={(e) => {
+              const d = (e.deltaY < 0 ? 1 : -1) * (volumeStep / 100);
+              onVolume(Math.min(1, Math.max(0, volume + d)));
+            }}
+            title={`Scroll untuk ubah volume (${volumeStep}%)`}
+          >
             <span className="shrink-0 text-white/60">
               {volume === 0 ? (
                 <VolumeMute className="h-5 w-5" />

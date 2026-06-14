@@ -54,6 +54,28 @@ export function usePlayer() {
     setIndex(i);
   }, []);
 
+  /**
+   * Load `list[i]` into the engine WITHOUT playing (paused), seeking to
+   * `position` once metadata is ready. Used to restore the last session;
+   * playback begins only when the user presses play.
+   */
+  const loadInList = useCallback((list: Track[], i: number, position: number) => {
+    if (i < 0 || i >= list.length) return;
+    queueRef.current = list;
+    setQueue(list);
+    const a = engine.audio;
+    a.src = trackUrl(list[i].path);
+    if (position > 0) {
+      const seek = () => {
+        a.currentTime = position;
+        a.removeEventListener("loadedmetadata", seek);
+      };
+      a.addEventListener("loadedmetadata", seek);
+    }
+    setIndex(i);
+    setPlaying(false);
+  }, []);
+
   const next = useCallback(() => {
     const q = queueRef.current;
     if (!q.length) return;
@@ -148,6 +170,7 @@ export function usePlayer() {
     shuffle,
     playAt,
     playInList,
+    loadInList,
     next,
     prev,
     toggle,

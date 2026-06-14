@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import type { Track } from "../types";
 import { fmtTime } from "../lib/format";
 
@@ -14,6 +14,7 @@ export function Library({
   query,
   onPlay,
   emptyMessage,
+  followSong,
 }: {
   tracks: Track[];
   currentPath: string | undefined;
@@ -21,7 +22,15 @@ export function Library({
   query: string;
   onPlay: (index: number) => void;
   emptyMessage?: string;
+  followSong: boolean;
 }) {
+  const activeRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (followSong && activeRef.current) {
+      activeRef.current.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    }
+  }, [currentPath, followSong]);
+
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     const withIndex = tracks.map((t, i) => ({ t, i }));
@@ -50,6 +59,7 @@ export function Library({
         return (
           <button
             key={t.path + i}
+            ref={active ? activeRef : undefined}
             onClick={() => onPlay(i)}
             className={`group flex items-center gap-3 rounded-xl px-3 py-2 text-left transition ${
               active ? "bg-white/15" : "hover:bg-white/8"

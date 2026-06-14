@@ -9,6 +9,9 @@ use lofty::tag::ItemKey;
 use rayon::prelude::*;
 use serde::Serialize;
 use std::path::Path;
+use tauri::menu::{Menu, MenuItem};
+use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
+use tauri::Manager;
 use walkdir::WalkDir;
 
 /// Metadata for a single audio track. `path` is the absolute file path the
@@ -247,12 +250,61 @@ fn get_cover(path: String) -> Option<String> {
     folder_cover(p)
 }
 
+/// Show / focus / unminimize the main window (from tray click or menu).
+fn reveal_main(app: &tauri::AppHandle) {
+    if let Some(w) = app.get_webview_window("main") {
+        let _ = w.show();
+        let _ = w.unminimize();
+        let _ = w.set_focus();
+    }
+}
+
+/// Toggle the system-tray icon's visibility (honors the user setting).
+#[tauri::command]
+fn set_tray_visible(app: tauri::AppHandle, visible: bool) {
+    if let Some(tray) = app.tray_by_id("main") {
+        let _ = tray.set_visible(visible);
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
-        .invoke_handler(tauri::generate_handler![scan_folder, get_cover])
+        .setup(|app| {
+            let show = MenuItem::with_id(app, "show", "Tampilkan meusic", true, None::<&str>)?;
+            let quit = MenuItem::with_id(app, "quit", "Keluar", true, None::<&str>)?;
+            let menu = Menu::with_items(app, &[&show, &quit])?;
+
+            TrayIconBuilder::with_id("main")
+                .icon(app.default_window_icon().unwrap().clone())
+                .tooltip("meusic")
+                .menu(&menu)
+                .show_menu_on_left_click(false)
+                .on_menu_event(|app, event| match event.id.as_ref() {
+                    "show" => reveal_main(app),
+                    "quit" => app.exit(0),
+                    _ => {}
+                })
+                .on_tray_icon_event(|tray, event| {
+                    if let TrayIconEvent::Click {
+                        button: MouseButton::Left,
+                        button_state: MouseButtonState::Up,
+                        ..
+                    } = event
+                    {
+                        reveal_main(tray.app_handle());
+                    }
+                })
+                .build(app)?;
+            Ok(())
+        })
+        .invoke_handler(tauri::generate_handler![
+            scan_folder,
+            get_cover,
+            set_tray_visible
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

@@ -8,12 +8,15 @@ import { FolderTree } from "./components/FolderTree";
 import { GroupList } from "./components/GroupList";
 import { Album, Artist } from "./components/icons";
 import { usePlayer } from "./hooks/usePlayer";
+import { useSettings } from "./hooks/useSettings";
 import { engine } from "./audio/engine";
-import { getCover, pickFolder, scanFolder } from "./lib/api";
+import { getCover, pickFolder, scanFolder, setTrayVisible } from "./lib/api";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { extractPalette } from "./lib/colors";
 import { fmtDurationLong } from "./lib/format";
 import { downscaleDataUri } from "./lib/image";
 import {
+  ancestorPaths,
   buildFolderTree,
   groupByAlbum,
   groupByArtist,
@@ -28,8 +31,29 @@ const DEFAULT_PALETTE: RGB[] = [
   [150, 90, 160],
 ];
 
+const SESSION_KEY = "meusic.session";
+
+interface Session {
+  rootPath: string;
+  mode: Mode;
+  selFolder: string;
+  trackPath: string | null;
+  position: number;
+  volume: number;
+}
+
+function loadSession(): Session | null {
+  try {
+    const raw = localStorage.getItem(SESSION_KEY);
+    return raw ? (JSON.parse(raw) as Session) : null;
+  } catch {
+    return null;
+  }
+}
+
 function App() {
   const player = usePlayer();
+  const { settings, update } = useSettings();
 
   // The full scanned library — independent of the playback queue, so browsing
   // never disturbs what's playing and vice-versa.
@@ -58,6 +82,63 @@ function App() {
   const accent = palette[0] ?? DEFAULT_PALETTE[0];
   const reqId = useRef(0);
   const coverCache = useRef<Map<string, string | null>>(new Map());
+  const sessionRef = useRef<Session | null>(null);
+  const settingsRef = useRef(settings);
+  settingsRef.current = settings;
+
+  // Sync tray icon visibility with the setting.
+  useEffect(() => {
+    setTrayVisible(settings.trayIcon).catch(() => {});
+  }, [settings.trayIcon]);
+
+  // Minimize-to-tray / close-to-tray (gated on tray icon being enabled).
+  useEffect(() => {
+    const win = getCurrentWindow();
+    let unClose: (() => void) | undefined;
+    let unResize: (() => void) | undefined;
+    (async () => {
+      unClose = await win.onCloseRequested(async (e) => {
+        const s = settingsRef.current;
+        if (s.trayIcon && s.closeToTray) {
+          e.preventDefault();
+          await win.hide();
+        }
+      });
+      unResize = await win.onResized(async () => {
+        const s = settingsRef.current;
+        if (s.trayIcon && s.minimizeToTray && (await win.isMinimized())) {
+          await win.hide();
+        }
+      });
+    })();
+    return () => {
+      unClose?.();
+      unResize?.();
+    };
+  }, []);
+
+  // Persist the session periodically + on hide/close, so resume works.
+  useEffect(() => {
+    const save = () => {
+      const s = sessionRef.current;
+      if (!s?.rootPath) return; // nothing loaded yet — don't clobber saved data
+      try {
+        localStorage.setItem(SESSION_KEY, JSON.stringify(s));
+      } catch {
+        /* ignore */
+      }
+    };
+    const id = window.setInterval(save, 5000);
+    const onHide = () => document.hidden && save();
+    document.addEventListener("visibilitychange", onHide);
+    window.addEventListener("beforeunload", save);
+    return () => {
+      window.clearInterval(id);
+      document.removeEventListener("visibilitychange", onHide);
+      window.removeEventListener("beforeunload", save);
+      save();
+    };
+  }, []);
 
   // Derived browse structures.
   const tree = useMemo(
@@ -71,13 +152,15 @@ function App() {
   const albums = useMemo(() => groupByAlbum(library), [library]);
   const artists = useMemo(() => groupByArtist(library), [library]);
 
-  // Reset selections when a new library loads.
+  // Default the folder selection to the root only when the current selection
+  // isn't valid for the loaded tree (new folder / first load). A restored
+  // selFolder that exists in the tree is kept, so resume works.
   useEffect(() => {
-    if (tree) {
+    if (tree && !treeIndex.has(selFolder)) {
       setSelFolder(tree.path);
       setExpanded(new Set([tree.path]));
     }
-  }, [tree]);
+  }, [tree, treeIndex, selFolder]);
   useEffect(() => {
     if (albums.length && !albums.some((a) => a.key === selAlbum))
       setSelAlbum(albums[0].key);
@@ -86,6 +169,39 @@ function App() {
     if (artists.length && !artists.some((a) => a.key === selArtist))
       setSelArtist(artists[0].key);
   }, [artists, selArtist]);
+
+  // Restore last session once on startup: re-scan the last folder, restore the
+  // last page/folder, and load the last track (paused) at its saved position.
+  const restoredRef = useRef(false);
+  useEffect(() => {
+    if (restoredRef.current) return;
+    restoredRef.current = true;
+    const s = loadSession();
+    if (!s?.rootPath) return;
+    (async () => {
+      setScanning(true);
+      try {
+        const tracks = await scanFolder(s.rootPath);
+        setLibrary(tracks);
+        setRootPath(s.rootPath);
+        if (typeof s.volume === "number") player.setVolume(s.volume);
+        if (settings.resumeStartupPage) {
+          if (s.mode) setMode(s.mode);
+          if (s.selFolder) {
+            setSelFolder(s.selFolder);
+            setExpanded(new Set(ancestorPaths(s.selFolder, s.rootPath)));
+          }
+        }
+        if (settings.rememberLastPlayed && s.trackPath) {
+          const idx = tracks.findIndex((t) => t.path === s.trackPath);
+          if (idx >= 0) player.loadInList(tracks, idx, s.position || 0);
+        }
+      } finally {
+        setScanning(false);
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Cover + adaptive palette for the playing track.
   const currentPath = player.current?.path;
@@ -241,6 +357,18 @@ function App() {
   const showSidebar = !searching && mode !== "songs";
   const hasLibrary = library.length > 0;
 
+  // Keep the latest session snapshot for the periodic saver.
+  sessionRef.current = rootPath
+    ? {
+        rootPath,
+        mode,
+        selFolder,
+        trackPath: player.current?.path ?? null,
+        position: player.currentTime,
+        volume: player.volume,
+      }
+    : null;
+
   return (
     <div className="relative flex h-screen w-screen flex-col overflow-hidden">
       <GradientBackground
@@ -258,6 +386,8 @@ function App() {
         onPick={handlePickFolder}
         scanning={scanning}
         powerSave={powerSave}
+        settings={settings}
+        onUpdateSetting={update}
       />
 
       <main className="min-h-0 flex-1 overflow-hidden px-6 pb-4 pt-1">
@@ -326,6 +456,7 @@ function App() {
                       ? "Tidak ada hasil."
                       : "Folder ini tidak punya lagu langsung — buka subfoldernya."
                   }
+                  followSong={settings.followSong}
                 />
               </div>
             </section>
@@ -359,6 +490,7 @@ function App() {
         onExpand={() => !powerSave && setOverlayOpen(true)}
         powerSave={powerSave}
         onTogglePowerSave={togglePowerSave}
+        volumeStep={settings.volumeScrollStep}
       />
 
       <NowPlayingOverlay

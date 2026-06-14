@@ -1,6 +1,8 @@
 import { useState, type ComponentType } from "react";
 import type { RGB } from "../types";
-import { Folder, Search, Album, Artist, MusicNote, Menu } from "./icons";
+import { Folder, FolderPlus, Search, Album, Artist, MusicNote, Menu } from "./icons";
+import { SettingsMenu } from "./SettingsMenu";
+import type { Settings } from "../hooks/useSettings";
 import logo from "../assets/logo.svg";
 import logoGreen from "../assets/logo-green.svg";
 
@@ -23,6 +25,8 @@ export function TopBar({
   onPick,
   scanning,
   powerSave,
+  settings,
+  onUpdateSetting,
 }: {
   accent: RGB;
   mode: Mode;
@@ -32,6 +36,8 @@ export function TopBar({
   onPick: () => void;
   scanning: boolean;
   powerSave: boolean;
+  settings: Settings;
+  onUpdateSetting: <K extends keyof Settings>(key: K, value: Settings[K]) => void;
 }) {
   const accentCss = `rgb(${accent.join(",")})`;
   const [menuOpen, setMenuOpen] = useState(false);
@@ -90,7 +96,7 @@ export function TopBar({
           title="Buka Folder"
           className="flex shrink-0 items-center gap-2 text-sm font-semibold text-white/80 transition hover:text-white disabled:opacity-60"
         >
-          <Folder className="h-[18px] w-[18px] shrink-0" />
+          <FolderPlus className="h-[18px] w-[18px] shrink-0" />
           <span className="hidden lg:inline">{scanning ? "Memindai…" : "Buka Folder"}</span>
         </button>
 
@@ -107,13 +113,12 @@ export function TopBar({
           {menuOpen && (
             <>
               <div className="fixed inset-0 z-40" onClick={() => setMenuOpen(false)} />
-              <div className="glass absolute right-0 top-full z-50 mt-2 w-56 rounded-xl p-2 shadow-2xl">
-                <div className="px-2 py-1.5 text-xs font-semibold uppercase tracking-wide text-white/45">
-                  Pengaturan
-                </div>
-                <div className="px-2 py-2 text-sm text-white/55">
-                  Belum ada pengaturan — segera hadir.
-                </div>
+              <div className="glass absolute right-0 top-full z-50 mt-2 w-80 rounded-xl p-2 shadow-2xl">
+                <SettingsMenu
+                  settings={settings}
+                  onUpdate={onUpdateSetting}
+                  accent={accent}
+                />
               </div>
             </>
           )}

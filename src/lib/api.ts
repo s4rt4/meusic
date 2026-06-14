@@ -26,3 +26,8 @@ export async function getCover(path: string): Promise<string | null> {
 export function trackUrl(path: string): string {
   return convertFileSrc(path);
 }
+
+/** Show or hide the system-tray icon. */
+export async function setTrayVisible(visible: boolean): Promise<void> {
+  return invoke("set_tray_visible", { visible });
+}
