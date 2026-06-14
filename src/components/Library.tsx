@@ -1,0 +1,83 @@
+import { useMemo } from "react";
+import type { Track } from "../types";
+import { fmtTime } from "../lib/format";
+
+/**
+ * Scrollable song list with search. Highlights the currently playing track by
+ * path (robust across view changes). Clicking a row calls onPlay with the
+ * row's index within `tracks`.
+ */
+export function Library({
+  tracks,
+  currentPath,
+  isPlaying,
+  query,
+  onPlay,
+  emptyMessage,
+}: {
+  tracks: Track[];
+  currentPath: string | undefined;
+  isPlaying: boolean;
+  query: string;
+  onPlay: (index: number) => void;
+  emptyMessage?: string;
+}) {
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    const withIndex = tracks.map((t, i) => ({ t, i }));
+    if (!q) return withIndex;
+    return withIndex.filter(
+      ({ t }) =>
+        t.title.toLowerCase().includes(q) ||
+        t.artist.toLowerCase().includes(q) ||
+        t.album.toLowerCase().includes(q)
+    );
+  }, [tracks, query]);
+
+  if (!filtered.length) {
+    return (
+      <div className="flex h-full min-h-[200px] flex-col items-center justify-center gap-3 p-6 text-center text-white/40">
+        <div className="text-4xl">🎵</div>
+        <p className="text-sm">{emptyMessage ?? "Tidak ada lagu di sini."}</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-0.5 p-2">
+      {filtered.map(({ t, i }) => {
+        const active = t.path === currentPath;
+        return (
+          <button
+            key={t.path + i}
+            onClick={() => onPlay(i)}
+            className={`group flex items-center gap-3 rounded-xl px-3 py-2 text-left transition ${
+              active ? "bg-white/15" : "hover:bg-white/8"
+            }`}
+          >
+            <div className="flex w-5 shrink-0 justify-center text-xs text-white/40">
+              {active && isPlaying ? (
+                <span className="text-white">▶</span>
+              ) : (
+                <span className="tabular-nums">{t.track_no || "•"}</span>
+              )}
+            </div>
+            <div className="min-w-0 flex-1">
+              <div
+                className={`truncate text-sm ${active ? "font-semibold text-white" : "text-white/90"}`}
+              >
+                {t.title}
+              </div>
+              <div className="truncate text-xs text-white/45">
+                {t.artist} <span className="text-white/30">|</span> {t.album}
+              </div>
+            </div>
+            <div className="shrink-0 text-xs tabular-nums text-white/40">
+              {fmtTime(t.duration)}
+            </div>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
