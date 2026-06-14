@@ -32,10 +32,10 @@ export function Equalizer({
           </button>
         ))}
       </div>
-      <div className="flex items-end justify-between gap-2">
+      <div className="flex items-end gap-1">
         {EQ_BANDS.map((hz, i) => (
-          <div key={hz} className="flex flex-1 flex-col items-center gap-1.5">
-            <span className="text-[10px] tabular-nums text-white/45">
+          <div key={hz} className="flex flex-1 flex-col items-center gap-2">
+            <span className="w-full text-center text-[10px] tabular-nums text-white/45">
               {gains[i] > 0 ? "+" : ""}
               {gains[i]}
             </span>
@@ -46,10 +46,12 @@ export function Equalizer({
               step={1}
               value={gains[i]}
               onChange={(e) => onChange(i, Number(e.target.value))}
-              className="h-24"
+              className="h-24 w-5"
               style={{ writingMode: "vertical-lr", direction: "rtl" }}
             />
-            <span className="text-[10px] text-white/55">{label(hz)}</span>
+            <span className="w-full text-center text-[10px] tabular-nums text-white/55">
+              {label(hz)}
+            </span>
           </div>
         ))}
       </div>

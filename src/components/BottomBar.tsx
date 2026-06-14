@@ -15,6 +15,7 @@ import {
   VolumeLow,
   VolumeMute,
   SlidersVertical,
+  AudioLines,
 } from "./icons";
 
 /**
@@ -102,7 +103,7 @@ export function BottomBar({
           title="Buka tampilan Now Playing"
         >
           <div
-            className="h-14 w-14 shrink-0 overflow-hidden rounded-md bg-white/10"
+            className="group relative h-14 w-14 shrink-0 overflow-hidden rounded-md bg-white/10"
             style={{ boxShadow: `0 6px 18px -6px ${rgb(accent, 0.8)}` }}
           >
             {coverUrl ? (
@@ -110,6 +111,12 @@ export function BottomBar({
             ) : (
               <div className="flex h-full w-full items-center justify-center text-2xl text-white/30">
                 ♪
+              </div>
+            )}
+            {/* Hover affordance: opens the full Now Playing view */}
+            {hasTrack && (
+              <div className="absolute inset-0 flex items-center justify-center bg-black/55 text-white opacity-0 transition-opacity duration-150 group-hover:opacity-100">
+                <AudioLines className="h-6 w-6" />
               </div>
             )}
           </div>

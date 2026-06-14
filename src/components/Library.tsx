@@ -45,7 +45,7 @@ export function Library({
 
   return (
     <div className="flex flex-col gap-0.5 p-2">
-      {filtered.map(({ t, i }) => {
+      {filtered.map(({ t, i }, pos) => {
         const active = t.path === currentPath;
         return (
           <button
@@ -55,11 +55,11 @@ export function Library({
               active ? "bg-white/15" : "hover:bg-white/8"
             }`}
           >
-            <div className="flex w-5 shrink-0 justify-center text-xs text-white/40">
+            <div className="flex w-6 shrink-0 justify-center text-xs text-white/40">
               {active && isPlaying ? (
                 <span className="text-white">▶</span>
               ) : (
-                <span className="tabular-nums">{t.track_no || "•"}</span>
+                <span className="tabular-nums">{pos + 1}</span>
               )}
             </div>
             <div className="min-w-0 flex-1">

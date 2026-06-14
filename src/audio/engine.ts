@@ -18,6 +18,9 @@ class AudioEngine {
   private filters: BiquadFilterNode[] = [];
   private freqData = new Uint8Array(0);
   private wired = false;
+  // Desired EQ gains (dB), kept independently of the graph so values set before
+  // the graph exists are applied when it is built.
+  private gains: number[] = new Array(EQ_BANDS.length).fill(0);
 
   constructor() {
     this.audio = new Audio();
@@ -44,7 +47,7 @@ class AudioEngine {
         i === 0 ? "lowshelf" : i === EQ_BANDS.length - 1 ? "highshelf" : "peaking";
       f.frequency.value = freq;
       f.Q.value = 1.0;
-      f.gain.value = 0;
+      f.gain.value = this.gains[i] ?? 0;
       node.connect(f);
       node = f;
       return f;
@@ -64,11 +67,13 @@ class AudioEngine {
 
   /** Set the gain (dB, -12..12) of EQ band `index`. */
   setEq(index: number, gainDb: number) {
+    this.gains[index] = gainDb;
     const f = this.filters[index];
     if (f) f.gain.value = gainDb;
   }
 
   resetEq() {
+    this.gains.fill(0);
     this.filters.forEach((f) => (f.gain.value = 0));
   }
 
