@@ -8,7 +8,9 @@ use lofty::read_from_path;
 use lofty::tag::ItemKey;
 use rayon::prelude::*;
 use serde::Serialize;
-use std::path::Path;
+use std::fs::OpenOptions;
+use std::io::Write;
+use std::path::{Path, PathBuf};
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::Manager;
@@ -250,6 +252,39 @@ fn get_cover(path: String) -> Option<String> {
     folder_cover(p)
 }
 
+// ---- Crash / error logging --------------------------------------------------
+
+/// Log file at %LOCALAPPDATA%\meusic\meusic.log (falls back to the cwd).
+fn log_path() -> PathBuf {
+    let base = std::env::var("LOCALAPPDATA").unwrap_or_else(|_| ".".to_string());
+    let dir = Path::new(&base).join("meusic");
+    let _ = std::fs::create_dir_all(&dir);
+    dir.join("meusic.log")
+}
+
+/// Append a timestamped line to the log file (best-effort, never panics).
+fn log_line(line: &str) {
+    let ts = chrono::Local::now().format("%Y-%m-%d %H:%M:%S");
+    if let Ok(mut f) = OpenOptions::new().create(true).append(true).open(log_path()) {
+        let _ = writeln!(f, "{ts} {line}");
+    }
+}
+
+/// Capture Rust panics into the log (instead of a silent crash) for monitoring.
+fn install_panic_hook() {
+    let default = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        log_line(&format!("[PANIC] {info}"));
+        default(info);
+    }));
+}
+
+/// Frontend-reported error/event, written to the same log.
+#[tauri::command]
+fn log_event(level: String, message: String) {
+    log_line(&format!("[{level}] {message}"));
+}
+
 /// Show / focus / unminimize the main window (from tray menu or mini-player).
 fn reveal_main(app: &tauri::AppHandle) {
     if let Some(w) = app.get_webview_window("main") {
@@ -295,6 +330,8 @@ fn set_tray_visible(app: tauri::AppHandle, visible: bool) {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    install_panic_hook();
+    log_line("[INFO] app start");
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
@@ -303,8 +340,7 @@ pub fn run() {
             let quit = MenuItem::with_id(app, "quit", "Keluar", true, None::<&str>)?;
             let menu = Menu::with_items(app, &[&show, &quit])?;
 
-            TrayIconBuilder::with_id("main")
-                .icon(app.default_window_icon().unwrap().clone())
+            let mut builder = TrayIconBuilder::with_id("main")
                 .tooltip("meusic")
                 .menu(&menu)
                 .show_menu_on_left_click(false)
@@ -322,14 +358,19 @@ pub fn run() {
                     {
                         toggle_mini(tray.app_handle());
                     }
-                })
-                .build(app)?;
+                });
+            // Guard against a missing icon instead of unwrap()-panicking on startup.
+            if let Some(icon) = app.default_window_icon() {
+                builder = builder.icon(icon.clone());
+            }
+            builder.build(app)?;
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             scan_folder,
             get_cover,
-            set_tray_visible
+            set_tray_visible,
+            log_event
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

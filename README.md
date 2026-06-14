@@ -32,7 +32,8 @@ folder tree on the left and a track list on the right.
 
 Because it runs on Tauri (a Rust core with the system WebView), it stays light — roughly a quarter
 of the memory a comparable Electron player would use, with idle animations paused to keep the CPU
-and GPU quiet.
+and GPU quiet. It lives in the system tray, resumes your last session on launch, and offers a
+power-save mode for the lightest possible footprint.
 
 ## Screenshots
 
@@ -58,25 +59,32 @@ music changes.
 - **Wide format support** — MP3, FLAC, M4A / AAC, OGG, Opus, WAV, AIFF, WMA.
 - **Adaptive gradient UI** — the background and accent colors are derived from the current
   cover art and cross-fade on track change.
-- **Four browsing modes** — Folders (Explorer-style tree), Albums, Artists, and Songs.
+- **Four browsing modes** — Folders (Explorer-style tree, with an "open folder" icon on the
+  active folder and a visualizer badge on the one playing), Albums, Artists, and Songs.
 - **Cover art** — read from embedded tags, with a fallback to folder images
-  (`cover.jpg`, `folder.jpg`, and similar).
-- **Now-playing details** — title, artist, album, audio format, and bitrate.
+  (`cover.jpg`, `folder.jpg`, and similar); downscaled and cached to stay light.
+- **Now-playing details** — title, artist, album, audio format, and bitrate; folder headers
+  show total runtime and artist/album counts.
 - **Full transport** — play / pause, next / previous, seek, volume, shuffle, and repeat
-  (off / all / one).
-- **6-band equalizer** with presets (Flat, Bass, Vocal, Treble).
-- **Spectrum visualizer** powered by the Web Audio API.
+  (off / all / one); mouse-wheel over the volume control adjusts it.
+- **6-band equalizer** with presets (Flat, Bass, Vocal, Treble) and a spectrum visualizer.
+- **Now Playing view** — full-screen cover + visualizer, opened from the bottom bar.
+- **System tray** — tray icon with minimize-to-tray and close-to-tray.
+- **Tray mini-player** — a compact popup (cover, seek, volume, transport) from the tray icon.
+- **Resume** — remembers the last folder, page, track, and playback position across restarts.
+- **Follow song** — the list auto-scrolls to the track that's playing.
+- **Power-save mode** — flat background and paused animations for the lightest footprint.
 - **Global search** across title, artist, and album.
 - **Responsive chrome** — the top and bottom bars collapse to icons on narrow windows.
-- **Power-aware** — animations pause when nothing is playing or the window is in the background.
+- **Settings** — toggles for resume, follow-song, tray behavior, and volume step.
 
 ## Tech Stack
 
 | Layer    | Technology                          | Responsibility                                            |
 | -------- | ----------------------------------- | --------------------------------------------------------- |
 | Backend  | Rust (`lofty`, `walkdir`, `rayon`)  | Recursive scan, tag and cover-art extraction (parallel)   |
-| Bridge   | Tauri 2 commands                    | `scan_folder`, `get_cover`; asset protocol for playback   |
-| Frontend | React + TypeScript + Vite + Tailwind | User interface and state                                  |
+| Bridge   | Tauri 2 (commands, tray, 2 windows) | `scan_folder` / `get_cover`, asset protocol, system tray, main↔mini-player events |
+| Frontend | React + TypeScript + Vite + Tailwind | UI, state, settings, session persistence                 |
 | Audio    | Web Audio API                       | Playback, 6-band equalizer, analyser for the visualizer   |
 
 ## Getting Started
@@ -109,13 +117,18 @@ The installer is produced under `src-tauri/target/release/bundle/`.
 src/
   audio/engine.ts        Web Audio graph (equalizer + analyser), singleton
   hooks/usePlayer.ts     Playback state and queue
-  lib/                   api.ts (Tauri calls), colors.ts (palette), views.ts (tree/groups)
+  hooks/useSettings.ts   Persisted user settings
+  lib/                   api, colors (palette), views (tree/groups), format,
+                         image (cover downscale), miniState (mini-player IPC types)
   components/            TopBar, FolderTree, GroupList, Library, BottomBar,
-                         NowPlayingOverlay, GradientBackground, Visualizer, Equalizer
-  App.tsx                Composition and view orchestration
+                         NowPlayingOverlay, GradientBackground, Visualizer, Equalizer,
+                         SettingsMenu, MiniPlayer, icons
+  App.tsx                Main-window orchestration (modes, session, tray, IPC)
+  main.tsx               Renders App or MiniPlayer based on the window label
 src-tauri/
-  src/lib.rs             scan_folder + get_cover commands
-  tauri.conf.json        window and asset-protocol configuration
+  src/lib.rs             scan_folder + get_cover commands, system tray, mini-player
+  tauri.conf.json        main + miniplayer windows, asset-protocol config
+  capabilities/          window/event/dialog permissions
 ```
 
 ## Acknowledgments
