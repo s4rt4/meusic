@@ -1,6 +1,6 @@
-import type { ComponentType } from "react";
+import { useState, type ComponentType } from "react";
 import type { RGB } from "../types";
-import { Folder, Search, Album, Artist, MusicNote } from "./icons";
+import { Folder, Search, Album, Artist, MusicNote, Menu } from "./icons";
 import logo from "../assets/logo.svg";
 import logoGreen from "../assets/logo-green.svg";
 
@@ -34,6 +34,7 @@ export function TopBar({
   powerSave: boolean;
 }) {
   const accentCss = `rgb(${accent.join(",")})`;
+  const [menuOpen, setMenuOpen] = useState(false);
   return (
     <header className="flex h-[68px] shrink-0 items-center gap-4 pl-5 pr-5 lg:gap-8 lg:pl-9 lg:pr-7">
       <img
@@ -92,6 +93,31 @@ export function TopBar({
           <Folder className="h-[18px] w-[18px] shrink-0" />
           <span className="hidden lg:inline">{scanning ? "Memindai…" : "Buka Folder"}</span>
         </button>
+
+        <div className="relative shrink-0">
+          <button
+            onClick={() => setMenuOpen((o) => !o)}
+            title="Menu"
+            className={`rounded-lg p-2 transition hover:bg-white/10 hover:text-white ${
+              menuOpen ? "text-white" : "text-white/75"
+            }`}
+          >
+            <Menu className="h-[18px] w-[18px]" />
+          </button>
+          {menuOpen && (
+            <>
+              <div className="fixed inset-0 z-40" onClick={() => setMenuOpen(false)} />
+              <div className="glass absolute right-0 top-full z-50 mt-2 w-56 rounded-xl p-2 shadow-2xl">
+                <div className="px-2 py-1.5 text-xs font-semibold uppercase tracking-wide text-white/45">
+                  Pengaturan
+                </div>
+                <div className="px-2 py-2 text-sm text-white/55">
+                  Belum ada pengaturan — segera hadir.
+                </div>
+              </div>
+            </>
+          )}
+        </div>
       </div>
     </header>
   );

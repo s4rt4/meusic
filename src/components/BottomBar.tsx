@@ -193,7 +193,7 @@ export function BottomBar({
             onClick={onTogglePowerSave}
             title={powerSave ? "Hemat daya: aktif" : "Hemat daya: nonaktif"}
             className={`shrink-0 rounded-full p-2 transition hover:bg-white/10 ${
-              powerSave ? "text-emerald-400" : "text-white/60"
+              powerSave ? "text-[#44aa00]" : "text-white/60"
             }`}
           >
             <Leaf className="h-5 w-5" />

@@ -169,6 +169,13 @@ export const Chevron = ({ className }: P) => (
     <path d="m9 18 6-6-6-6" />
   </Svg>
 );
+export const Menu = ({ className }: P) => (
+  <Svg className={className}>
+    <path d="M4 5h16" />
+    <path d="M4 12h16" />
+    <path d="M4 19h16" />
+  </Svg>
+);
 export const Leaf = ({ className }: P) => (
   <Svg className={className}>
     <path d="M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.48 19 2c1 2 2 4.18 2 8 0 5.5-4.78 10-10 10Z" />
