@@ -1,8 +1,10 @@
 {
-  "name": "tauri-app",
+  "name": "meusic",
   "private": true,
   "version": "0.1.0",
   "type": "module",
+  "license": "MIT",
+  "description": "A lightweight, native local music player for Windows",
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
