@@ -25,7 +25,7 @@
         "label": "miniplayer",
         "title": "meusic mini",
         "width": 320,
-        "height": 412,
+        "height": 300,
         "resizable": false,
         "decorations": false,
         "alwaysOnTop": true,

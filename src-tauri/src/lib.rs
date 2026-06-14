@@ -274,7 +274,7 @@ fn toggle_mini(app: &tauri::AppHandle) {
         let mpos = mon.position();
         let wsize = mini
             .outer_size()
-            .unwrap_or(tauri::PhysicalSize::new(320, 412));
+            .unwrap_or(tauri::PhysicalSize::new(320, 300));
         let margin = 12i32;
         let taskbar = 56i32;
         let x = mpos.x + msize.width as i32 - wsize.width as i32 - margin;
