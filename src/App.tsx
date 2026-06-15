@@ -10,7 +10,14 @@ import { Album, Artist } from "./components/icons";
 import { usePlayer } from "./hooks/usePlayer";
 import { useSettings } from "./hooks/useSettings";
 import { engine } from "./audio/engine";
-import { getCover, pickFolder, scanFolder, setTrayVisible } from "./lib/api";
+import {
+  getCover,
+  loadStore,
+  pickFolder,
+  saveStore,
+  scanFolder,
+  setTrayVisible,
+} from "./lib/api";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { emit, listen } from "@tauri-apps/api/event";
 import {
@@ -39,7 +46,8 @@ const DEFAULT_PALETTE: RGB[] = [
   [150, 90, 160],
 ];
 
-const SESSION_KEY = "meusic.session";
+const SESSION_KEY = "meusic.session"; // fast localStorage cache
+const SESSION_STORE = "session"; // durable file-backed store (session.json)
 
 interface Session {
   rootPath: string;
@@ -50,13 +58,25 @@ interface Session {
   volume: number;
 }
 
-function loadSession(): Session | null {
+function parseSession(raw: string | null): Session | null {
+  if (!raw) return null;
   try {
-    const raw = localStorage.getItem(SESSION_KEY);
-    return raw ? (JSON.parse(raw) as Session) : null;
+    return JSON.parse(raw) as Session;
   } catch {
     return null;
   }
+}
+
+// The file store is the source of truth (localStorage isn't flushed reliably on
+// OS shutdown); fall back to the localStorage cache if the file isn't there yet.
+async function loadSession(): Promise<Session | null> {
+  try {
+    const fromFile = parseSession(await loadStore(SESSION_STORE));
+    if (fromFile) return fromFile;
+  } catch {
+    /* ignore */
+  }
+  return parseSession(localStorage.getItem(SESSION_KEY));
 }
 
 function App() {
@@ -175,11 +195,13 @@ function App() {
     const save = () => {
       const s = sessionRef.current;
       if (!s?.rootPath) return; // nothing loaded yet — don't clobber saved data
+      const json = JSON.stringify(s);
       try {
-        localStorage.setItem(SESSION_KEY, JSON.stringify(s));
+        localStorage.setItem(SESSION_KEY, json); // fast cache
       } catch {
         /* ignore */
       }
+      void saveStore(SESSION_STORE, json).catch(() => {}); // durable on disk
     };
     const id = window.setInterval(save, 5000);
     const onHide = () => document.hidden && save();
@@ -229,9 +251,9 @@ function App() {
   useEffect(() => {
     if (restoredRef.current) return;
     restoredRef.current = true;
-    const s = loadSession();
-    if (!s?.rootPath) return;
     (async () => {
+      const s = await loadSession();
+      if (!s?.rootPath) return;
       setScanning(true);
       try {
         const tracks = await scanFolder(s.rootPath);
