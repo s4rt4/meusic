@@ -27,6 +27,7 @@ export function TopBar({
   powerSave,
   settings,
   onUpdateSetting,
+  onAbout,
 }: {
   accent: RGB;
   mode: Mode;
@@ -38,17 +39,24 @@ export function TopBar({
   powerSave: boolean;
   settings: Settings;
   onUpdateSetting: <K extends keyof Settings>(key: K, value: Settings[K]) => void;
+  onAbout: () => void;
 }) {
   const accentCss = `rgb(${accent.join(",")})`;
   const [menuOpen, setMenuOpen] = useState(false);
   return (
     <header className="flex h-[68px] shrink-0 items-center gap-4 pl-5 pr-5 lg:gap-8 lg:pl-9 lg:pr-7">
-      <img
-        src={powerSave ? logoGreen : logo}
-        alt="meusic"
-        className="h-7 shrink-0 select-none lg:h-8"
-        draggable={false}
-      />
+      <button
+        onClick={onAbout}
+        title="Tentang meusic"
+        className="shrink-0 rounded-md transition hover:opacity-80 focus:outline-none focus-visible:ring-2 focus-visible:ring-white/30"
+      >
+        <img
+          src={powerSave ? logoGreen : logo}
+          alt="meusic"
+          className="h-7 select-none lg:h-8"
+          draggable={false}
+        />
+      </button>
 
       <nav className="flex shrink-0 items-center">
         {TABS.map((t, i) => {
@@ -113,7 +121,7 @@ export function TopBar({
           {menuOpen && (
             <>
               <div className="fixed inset-0 z-40" onClick={() => setMenuOpen(false)} />
-              <div className="glass absolute right-0 top-full z-50 mt-2 w-80 rounded-xl p-2 shadow-2xl">
+              <div className="glass-strong absolute right-0 top-full z-50 mt-2 w-80 rounded-xl p-2 shadow-2xl">
                 <SettingsMenu
                   settings={settings}
                   onUpdate={onUpdateSetting}

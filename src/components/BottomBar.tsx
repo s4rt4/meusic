@@ -206,7 +206,7 @@ export function BottomBar({
               <SlidersVertical className="h-5 w-5" />
             </IconBtn>
             {showEq && (
-              <div className="glass absolute bottom-12 right-0 w-72 rounded-2xl p-4 shadow-2xl">
+              <div className="glass-strong absolute bottom-12 right-0 w-72 rounded-2xl p-4 shadow-2xl">
                 <Equalizer
                   gains={eqGains}
                   onChange={onEqChange}

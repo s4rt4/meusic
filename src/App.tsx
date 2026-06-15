@@ -4,6 +4,7 @@ import { Library } from "./components/Library";
 import { TopBar, type Mode } from "./components/TopBar";
 import { BottomBar } from "./components/BottomBar";
 import { NowPlayingOverlay } from "./components/NowPlayingOverlay";
+import { AboutDialog } from "./components/AboutDialog";
 import { FolderTree } from "./components/FolderTree";
 import { GroupList } from "./components/GroupList";
 import { Album, Artist } from "./components/icons";
@@ -96,6 +97,7 @@ function App() {
   const [showEq, setShowEq] = useState(false);
   const [eqGains, setEqGains] = useState<number[]>(Array(6).fill(0));
   const [overlayOpen, setOverlayOpen] = useState(false);
+  const [aboutOpen, setAboutOpen] = useState(false);
   const [windowActive, setWindowActive] = useState(true);
   const [powerSave, setPowerSave] = useState(
     () => localStorage.getItem("meusic.powerSave") === "1"
@@ -509,6 +511,7 @@ function App() {
         powerSave={powerSave}
         settings={settings}
         onUpdateSetting={update}
+        onAbout={() => setAboutOpen(true)}
       />
 
       <main className="min-h-0 flex-1 overflow-hidden px-6 pb-4 pt-1">
@@ -621,6 +624,8 @@ function App() {
         accent={accent}
         active={animationsActive}
       />
+
+      <AboutDialog open={aboutOpen} onClose={() => setAboutOpen(false)} accent={accent} />
     </div>
   );
 }
