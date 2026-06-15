@@ -11,6 +11,10 @@ import type { RepeatMode, Track } from "../types";
 export function usePlayer() {
   const [queue, setQueue] = useState<Track[]>([]);
   const [index, setIndex] = useState(-1);
+  // The track that's actually loaded in the engine. Kept separate from
+  // queue[index] so retargeting the queue (e.g. applying a search that excludes
+  // the playing track) never blanks what's playing in the UI.
+  const [currentTrack, setCurrentTrack] = useState<Track | null>(null);
   const [isPlaying, setPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
@@ -20,14 +24,16 @@ export function usePlayer() {
 
   const queueRef = useRef(queue);
   const indexRef = useRef(index);
+  const currentTrackRef = useRef(currentTrack);
   const repeatRef = useRef(repeat);
   const shuffleRef = useRef(shuffle);
   queueRef.current = queue;
   indexRef.current = index;
+  currentTrackRef.current = currentTrack;
   repeatRef.current = repeat;
   shuffleRef.current = shuffle;
 
-  const current = index >= 0 ? queue[index] ?? null : null;
+  const current = currentTrack;
 
   const playAt = useCallback((i: number) => {
     const q = queueRef.current;
@@ -36,6 +42,7 @@ export function usePlayer() {
     engine.audio.src = trackUrl(q[i].path);
     engine.audio.play().catch(() => {});
     setIndex(i);
+    setCurrentTrack(q[i]);
   }, []);
 
   /**
@@ -51,6 +58,23 @@ export function usePlayer() {
     engine.ensureGraph();
     engine.audio.src = trackUrl(list[i].path);
     engine.audio.play().catch(() => {});
+    setIndex(i);
+    setCurrentTrack(list[i]);
+  }, []);
+
+  /**
+   * Point next/prev at `list` (the list currently on screen) WITHOUT disturbing
+   * what's playing. Re-anchors the index on the playing track's position in the
+   * new list; if it isn't there (e.g. a search that excludes it), index becomes
+   * -1 so the next track is the first item of the new list. This mirrors
+   * Dopamine, where applying/clearing a search retargets the play queue.
+   */
+  const syncQueue = useCallback((list: Track[]) => {
+    queueRef.current = list;
+    setQueue(list);
+    const path = currentTrackRef.current?.path;
+    const i = path ? list.findIndex((t) => t.path === path) : -1;
+    indexRef.current = i;
     setIndex(i);
   }, []);
 
@@ -73,6 +97,7 @@ export function usePlayer() {
       a.addEventListener("loadedmetadata", seek);
     }
     setIndex(i);
+    setCurrentTrack(list[i]);
     setPlaying(false);
   }, []);
 
@@ -170,6 +195,7 @@ export function usePlayer() {
     shuffle,
     playAt,
     playInList,
+    syncQueue,
     loadInList,
     next,
     prev,

@@ -1,17 +1,16 @@
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useRef } from "react";
 import type { Track } from "../types";
 import { fmtTime } from "../lib/format";
 
 /**
- * Scrollable song list with search. Highlights the currently playing track by
- * path (robust across view changes). Clicking a row calls onPlay with the
- * row's index within `tracks`.
+ * Scrollable song list. `tracks` is already the resolved view (filtered when
+ * searching), so a row's position IS its index in the play queue. Highlights
+ * the currently playing track by path (robust across view changes).
  */
 export function Library({
   tracks,
   currentPath,
   isPlaying,
-  query,
   onPlay,
   emptyMessage,
   followSong,
@@ -19,7 +18,6 @@ export function Library({
   tracks: Track[];
   currentPath: string | undefined;
   isPlaying: boolean;
-  query: string;
   onPlay: (index: number) => void;
   emptyMessage?: string;
   followSong: boolean;
@@ -31,19 +29,7 @@ export function Library({
     }
   }, [currentPath, followSong]);
 
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    const withIndex = tracks.map((t, i) => ({ t, i }));
-    if (!q) return withIndex;
-    return withIndex.filter(
-      ({ t }) =>
-        t.title.toLowerCase().includes(q) ||
-        t.artist.toLowerCase().includes(q) ||
-        t.album.toLowerCase().includes(q)
-    );
-  }, [tracks, query]);
-
-  if (!filtered.length) {
+  if (!tracks.length) {
     return (
       <div className="flex h-full min-h-[200px] flex-col items-center justify-center gap-3 p-6 text-center text-white/40">
         <div className="text-4xl">🎵</div>
@@ -54,13 +40,13 @@ export function Library({
 
   return (
     <div className="flex flex-col gap-0.5 p-2">
-      {filtered.map(({ t, i }, pos) => {
+      {tracks.map((t, pos) => {
         const active = t.path === currentPath;
         return (
           <button
-            key={t.path + i}
+            key={t.path + pos}
             ref={active ? activeRef : undefined}
-            onClick={() => onPlay(i)}
+            onClick={() => onPlay(pos)}
             className={`group flex items-center gap-3 rounded-xl px-3 py-2 text-left transition ${
               active ? "bg-white/15" : "hover:bg-white/8"
             }`}

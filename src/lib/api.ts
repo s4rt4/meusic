@@ -31,3 +31,13 @@ export function trackUrl(path: string): string {
 export async function setTrayVisible(visible: boolean): Promise<void> {
   return invoke("set_tray_visible", { visible });
 }
+
+/** Read a file-backed store by name (null if it doesn't exist yet). */
+export async function loadStore(name: string): Promise<string | null> {
+  return invoke<string | null>("load_store", { name });
+}
+
+/** Write a file-backed store to disk immediately (survives OS shutdown). */
+export async function saveStore(name: string, contents: string): Promise<void> {
+  return invoke("save_store", { name, contents });
+}

@@ -102,16 +102,16 @@ export function BottomBar({
       {/* 3-column grid: flexible sides (shrink, never overflow) keep the play
           button perfectly centered regardless of window width. */}
       <div className="grid h-[84px] grid-cols-[1fr_auto_1fr] items-center gap-4 pl-5 pr-5 lg:pl-9 lg:pr-7">
-        {/* Left: cover + info */}
-        <button
-          onClick={onExpand}
-          disabled={!hasTrack}
-          className="flex min-w-0 items-center gap-3 text-left transition hover:opacity-90 disabled:cursor-default"
-          title="Buka tampilan Now Playing"
-        >
-          <div
-            className="group relative h-14 w-14 shrink-0 overflow-hidden rounded-md bg-white/10"
+        {/* Left: cover + info. Only the cover opens Now Playing — clicking the
+            title/info area does nothing (the whole block used to be one button,
+            which made the hit area confusingly wide). */}
+        <div className="flex min-w-0 items-center gap-3">
+          <button
+            onClick={onExpand}
+            disabled={!hasTrack || powerSave}
+            className="group relative h-14 w-14 shrink-0 overflow-hidden rounded-md bg-white/10 transition hover:opacity-90 disabled:cursor-default"
             style={{ boxShadow: `0 6px 18px -6px ${rgb(accent, 0.8)}` }}
+            title="Buka tampilan Now Playing"
           >
             {coverUrl ? (
               <img src={coverUrl} alt="" className="h-full w-full object-cover" />
@@ -126,7 +126,7 @@ export function BottomBar({
                 <AudioLines className="h-6 w-6" />
               </div>
             )}
-          </div>
+          </button>
           <div className="min-w-0">
             <div className="truncate text-sm font-semibold text-white">
               {track?.title ?? "meusic"}
@@ -151,7 +151,7 @@ export function BottomBar({
               </div>
             )}
           </div>
-        </button>
+        </div>
 
         {/* Center: transport */}
         <div className="flex items-center justify-center gap-2">

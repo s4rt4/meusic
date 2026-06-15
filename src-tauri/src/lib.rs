@@ -328,11 +328,41 @@ fn set_tray_visible(app: tauri::AppHandle, visible: bool) {
     }
 }
 
+// ---- Persistent key/value store (file-backed) -------------------------------
+// Settings/session are written to disk so they survive an OS shutdown, which can
+// kill the process before WebView2 flushes localStorage to disk.
+
+/// Path to `<name>.json` in the per-app config dir (%APPDATA%\com.sarta.meusic).
+fn store_path(app: &tauri::AppHandle, name: &str) -> Option<PathBuf> {
+    let dir = app.path().app_config_dir().ok()?;
+    let _ = std::fs::create_dir_all(&dir);
+    Some(dir.join(format!("{name}.json")))
+}
+
+/// Read a named store's contents (None if it doesn't exist yet).
+#[tauri::command]
+fn load_store(app: tauri::AppHandle, name: String) -> Option<String> {
+    let p = store_path(&app, &name)?;
+    std::fs::read_to_string(p).ok()
+}
+
+/// Write a named store's contents to disk (immediately, no buffering).
+#[tauri::command]
+fn save_store(app: tauri::AppHandle, name: String, contents: String) -> Result<(), String> {
+    let p = store_path(&app, &name).ok_or("no config dir")?;
+    std::fs::write(p, contents).map_err(|e| e.to_string())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     install_panic_hook();
     log_line("[INFO] app start");
     tauri::Builder::default()
+        // Single-instance must be registered first: a second launch forwards to
+        // this callback (reveal the existing window) instead of opening anew.
+        .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
+            reveal_main(app);
+        }))
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
@@ -370,7 +400,9 @@ pub fn run() {
             scan_folder,
             get_cover,
             set_tray_visible,
-            log_event
+            log_event,
+            load_store,
+            save_store
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

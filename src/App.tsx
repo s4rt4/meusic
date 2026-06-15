@@ -356,34 +356,58 @@ function App() {
   }, []);
 
   // Resolve the current view's tracks + title. A non-empty search overrides the
-  // mode and searches the whole library.
+  // mode and filters the whole library; the filtered list is what gets shown,
+  // counted, and played — so the queue and header always match the view.
   const searching = query.trim().length > 0;
-  let viewTracks: Track[] = [];
-  let viewTitle = "";
-  if (searching) {
-    viewTracks = library;
-    viewTitle = `Pencarian "${query.trim()}"`;
-  } else if (mode === "songs") {
-    viewTracks = library;
-    viewTitle = "Semua Lagu";
-  } else if (mode === "folders") {
-    const node = treeIndex.get(selFolder) ?? tree;
-    viewTracks = node?.tracks ?? [];
-    viewTitle = node?.name ?? "";
-  } else if (mode === "albums") {
-    const g = albums.find((a) => a.key === selAlbum);
-    viewTracks = g?.tracks ?? [];
-    viewTitle = g?.label ?? "";
-  } else {
+  const { viewTracks, viewTitle } = useMemo<{
+    viewTracks: Track[];
+    viewTitle: string;
+  }>(() => {
+    if (searching) {
+      const q = query.trim().toLowerCase();
+      return {
+        viewTracks: library.filter(
+          (t) =>
+            t.title.toLowerCase().includes(q) ||
+            t.artist.toLowerCase().includes(q) ||
+            t.album.toLowerCase().includes(q)
+        ),
+        viewTitle: `Pencarian "${query.trim()}"`,
+      };
+    }
+    if (mode === "songs") return { viewTracks: library, viewTitle: "Semua Lagu" };
+    if (mode === "folders") {
+      const node = treeIndex.get(selFolder) ?? tree;
+      return { viewTracks: node?.tracks ?? [], viewTitle: node?.name ?? "" };
+    }
+    if (mode === "albums") {
+      const g = albums.find((a) => a.key === selAlbum);
+      return { viewTracks: g?.tracks ?? [], viewTitle: g?.label ?? "" };
+    }
     const g = artists.find((a) => a.key === selArtist);
-    viewTracks = g?.tracks ?? [];
-    viewTitle = g?.label ?? "";
-  }
+    return { viewTracks: g?.tracks ?? [], viewTitle: g?.label ?? "" };
+  }, [searching, query, mode, library, treeIndex, tree, selFolder, albums, selAlbum, artists, selArtist]);
 
   const onPlay = useCallback(
     (i: number) => player.playInList(viewTracks, i),
     [player, viewTracks]
   );
+
+  // Retarget the play queue when a search is applied, refined, or cleared, so
+  // next/prev follow what's on screen (Dopamine behavior). Folder/album/artist
+  // browsing deliberately leaves the queue alone, so casual browsing never
+  // changes what plays next. Skips the first run so it can't clobber the queue
+  // restored on startup.
+  const viewTracksRef = useRef(viewTracks);
+  viewTracksRef.current = viewTracks;
+  const skipFirstSync = useRef(true);
+  useEffect(() => {
+    if (skipFirstSync.current) {
+      skipFirstSync.current = false;
+      return;
+    }
+    playerRef.current.syncQueue(viewTracksRef.current);
+  }, [query]);
 
   // Header summary: count, total runtime, and (when meaningful) artist/album counts.
   const summary = (() => {
@@ -524,7 +548,6 @@ function App() {
                   tracks={viewTracks}
                   currentPath={currentPath}
                   isPlaying={player.isPlaying}
-                  query={query}
                   onPlay={onPlay}
                   emptyMessage={
                     searching

@@ -1,4 +1,5 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { loadStore, saveStore } from "../lib/api";
 
 /** User-configurable settings, persisted to localStorage. */
 export interface Settings {
@@ -23,28 +24,66 @@ const DEFAULTS: Settings = {
 };
 
 const KEY = "meusic.settings";
+const STORE = "settings"; // file-backed store name (settings.json)
 
-function load(): Settings {
+function parse(raw: string | null): Settings | null {
+  if (!raw) return null;
   try {
-    const raw = localStorage.getItem(KEY);
-    return raw ? { ...DEFAULTS, ...JSON.parse(raw) } : DEFAULTS;
+    return { ...DEFAULTS, ...JSON.parse(raw) };
+  } catch {
+    return null;
+  }
+}
+
+/** Synchronous initial read from the localStorage cache (avoids a flash of
+ *  defaults before the file store loads). */
+function loadCache(): Settings {
+  try {
+    return parse(localStorage.getItem(KEY)) ?? DEFAULTS;
   } catch {
     return DEFAULTS;
   }
 }
 
 export function useSettings() {
-  const [settings, setSettings] = useState<Settings>(load);
+  const [settings, setSettings] = useState<Settings>(loadCache);
+  const settingsRef = useRef(settings);
+  settingsRef.current = settings;
+
+  // The file store is the source of truth (localStorage doesn't survive an OS
+  // shutdown reliably). Reconcile from disk once on startup.
+  useEffect(() => {
+    loadStore(STORE)
+      .then((raw) => {
+        const fromFile = parse(raw);
+        if (fromFile) {
+          setSettings(fromFile);
+          try {
+            localStorage.setItem(KEY, JSON.stringify(fromFile));
+          } catch {
+            /* ignore */
+          }
+        } else {
+          // No file yet (first run / migrating from localStorage) — seed it.
+          void saveStore(STORE, JSON.stringify(settingsRef.current)).catch(
+            () => {}
+          );
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   const update = useCallback(
     <K extends keyof Settings>(key: K, value: Settings[K]) => {
       setSettings((prev) => {
         const next = { ...prev, [key]: value };
+        const json = JSON.stringify(next);
         try {
-          localStorage.setItem(KEY, JSON.stringify(next));
+          localStorage.setItem(KEY, json); // fast cache
         } catch {
           /* ignore */
         }
+        void saveStore(STORE, json).catch(() => {}); // durable on disk
         return next;
       });
     },
