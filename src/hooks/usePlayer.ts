@@ -1,7 +1,27 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { engine } from "../audio/engine";
 import { trackUrl } from "../lib/api";
+import { formatPlaybackError } from "../lib/playbackError";
 import type { RepeatMode, Track } from "../types";
+
+/** Forward a playback failure to meusic.log so silent decode errors are visible. */
+function logPlaybackError(where: string, err?: unknown) {
+  const a = engine.audio;
+  const me = a.error;
+  const message = formatPlaybackError(
+    where,
+    {
+      code: me?.code,
+      mediaMessage: me?.message || undefined,
+      readyState: a.readyState,
+      networkState: a.networkState,
+      src: decodeURIComponent(a.currentSrc || a.src),
+    },
+    err,
+  );
+  invoke("log_event", { level: "ERROR", message }).catch(() => {});
+}
 
 /**
  * Central playback state + controls. Owns the queue and drives the singleton
@@ -40,7 +60,7 @@ export function usePlayer() {
     if (i < 0 || i >= q.length) return;
     engine.ensureGraph();
     engine.audio.src = trackUrl(q[i].path);
-    engine.audio.play().catch(() => {});
+    engine.audio.play().catch((e) => logPlaybackError("play() rejected", e));
     setIndex(i);
     setCurrentTrack(q[i]);
   }, []);
@@ -57,7 +77,7 @@ export function usePlayer() {
     setQueue(list);
     engine.ensureGraph();
     engine.audio.src = trackUrl(list[i].path);
-    engine.audio.play().catch(() => {});
+    engine.audio.play().catch((e) => logPlaybackError("play() rejected", e));
     setIndex(i);
     setCurrentTrack(list[i]);
   }, []);
@@ -164,17 +184,22 @@ export function usePlayer() {
       }
       next();
     };
+    // Surface decode/load failures (otherwise swallowed): some FLACs play in
+    // ffmpeg-based players but Chromium/WebView2's stricter decoder rejects them.
+    const onError = () => logPlaybackError("error event");
     a.addEventListener("timeupdate", onTime);
     a.addEventListener("loadedmetadata", onMeta);
     a.addEventListener("play", onPlay);
     a.addEventListener("pause", onPause);
     a.addEventListener("ended", onEnd);
+    a.addEventListener("error", onError);
     return () => {
       a.removeEventListener("timeupdate", onTime);
       a.removeEventListener("loadedmetadata", onMeta);
       a.removeEventListener("play", onPlay);
       a.removeEventListener("pause", onPause);
       a.removeEventListener("ended", onEnd);
+      a.removeEventListener("error", onError);
     };
   }, [next]);
 
