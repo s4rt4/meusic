@@ -41,3 +41,20 @@ export async function loadStore(name: string): Promise<string | null> {
 export async function saveStore(name: string, contents: string): Promise<void> {
   return invoke("save_store", { name, contents });
 }
+
+// The radio proxy port is fixed for the process lifetime — fetch it once.
+let radioPortPromise: Promise<number> | null = null;
+
+/** Warm the proxy-port lookup at startup so the first station plays without an
+ *  await landing outside the user-gesture window (autoplay policy). */
+export function prefetchRadioProxy(): void {
+  if (!radioPortPromise) radioPortPromise = invoke<number>("radio_proxy_port");
+}
+
+/** Build a loopback proxy URL the <audio> element can stream a radio station
+ *  from (same-origin/CORS-clean, so EQ + visualizer work; http streams ok). */
+export async function radioProxyUrl(streamUrl: string): Promise<string> {
+  if (!radioPortPromise) radioPortPromise = invoke<number>("radio_proxy_port");
+  const port = await radioPortPromise;
+  return `http://127.0.0.1:${port}/radio?url=${encodeURIComponent(streamUrl)}`;
+}

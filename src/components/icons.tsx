@@ -200,3 +200,39 @@ export const Heart = ({ className }: P) => (
     <path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z" />
   </Svg>
 );
+export const Radio = ({ className }: P) => (
+  <Svg className={className}>
+    <path d="M16.247 7.761a6 6 0 0 1 0 8.478" />
+    <path d="M19.075 4.933a10 10 0 0 1 0 14.134" />
+    <path d="M4.925 19.067a10 10 0 0 1 0-14.134" />
+    <path d="M7.753 16.239a6 6 0 0 1 0-8.478" />
+    <circle cx="12" cy="12" r="2" />
+  </Svg>
+);
+export const Pencil = ({ className }: P) => (
+  <Svg className={className}>
+    <path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z" />
+    <path d="m15 5 4 4" />
+  </Svg>
+);
+export const Trash = ({ className }: P) => (
+  <Svg className={className}>
+    <path d="M3 6h18" />
+    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" />
+    <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+    <path d="M10 11v6" />
+    <path d="M14 11v6" />
+  </Svg>
+);
+export const Plus = ({ className }: P) => (
+  <Svg className={className}>
+    <path d="M5 12h14" />
+    <path d="M12 5v14" />
+  </Svg>
+);
+export const Close = ({ className }: P) => (
+  <Svg className={className}>
+    <path d="M18 6 6 18" />
+    <path d="m6 6 12 12" />
+  </Svg>
+);

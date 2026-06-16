@@ -1,5 +1,5 @@
 import { useState, type ComponentType } from "react";
-import type { RGB } from "../types";
+import type { AppMode, RGB } from "../types";
 import { Folder, FolderPlus, Search, Album, Artist, MusicNote, Menu } from "./icons";
 import { SettingsMenu } from "./SettingsMenu";
 import type { Settings } from "../hooks/useSettings";
@@ -28,6 +28,8 @@ export function TopBar({
   settings,
   onUpdateSetting,
   onAbout,
+  appMode,
+  onAppMode,
 }: {
   accent: RGB;
   mode: Mode;
@@ -40,9 +42,12 @@ export function TopBar({
   settings: Settings;
   onUpdateSetting: <K extends keyof Settings>(key: K, value: Settings[K]) => void;
   onAbout: () => void;
+  appMode: AppMode;
+  onAppMode: (m: AppMode) => void;
 }) {
   const accentCss = `rgb(${accent.join(",")})`;
   const [menuOpen, setMenuOpen] = useState(false);
+  const isRadio = appMode === "radio";
   return (
     <header className="flex h-[68px] shrink-0 items-center gap-4 pl-5 pr-5 lg:gap-8 lg:pl-9 lg:pr-7">
       <button
@@ -58,7 +63,7 @@ export function TopBar({
         />
       </button>
 
-      <nav className="flex shrink-0 items-center">
+      <nav className={`shrink-0 items-center ${isRadio ? "hidden" : "flex"}`}>
         {TABS.map((t, i) => {
           const active = t.key === mode;
           const Icon = t.icon;
@@ -92,21 +97,23 @@ export function TopBar({
           <input
             value={query}
             onChange={(e) => onQuery(e.target.value)}
-            placeholder="Cari…"
+            placeholder={isRadio ? "Cari stasiun…" : "Cari…"}
             className="w-full min-w-0 bg-transparent text-sm text-white outline-none placeholder:text-white/40"
           />
           <Search className="h-[18px] w-[18px] shrink-0 text-white/45" />
         </div>
 
-        <button
-          onClick={onPick}
-          disabled={scanning}
-          title="Buka Folder"
-          className="flex shrink-0 items-center gap-2 text-sm font-semibold text-white/80 transition hover:text-white disabled:opacity-60"
-        >
-          <FolderPlus className="h-[18px] w-[18px] shrink-0" />
-          <span className="hidden lg:inline">{scanning ? "Memindai…" : "Buka Folder"}</span>
-        </button>
+        {!isRadio && (
+          <button
+            onClick={onPick}
+            disabled={scanning}
+            title="Buka Folder"
+            className="flex shrink-0 items-center gap-2 text-sm font-semibold text-white/80 transition hover:text-white disabled:opacity-60"
+          >
+            <FolderPlus className="h-[18px] w-[18px] shrink-0" />
+            <span className="hidden lg:inline">{scanning ? "Memindai…" : "Buka Folder"}</span>
+          </button>
+        )}
 
         <div className="relative shrink-0">
           <button
@@ -126,6 +133,8 @@ export function TopBar({
                   settings={settings}
                   onUpdate={onUpdateSetting}
                   accent={accent}
+                  appMode={appMode}
+                  onAppMode={onAppMode}
                 />
               </div>
             </>

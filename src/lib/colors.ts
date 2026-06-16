@@ -51,7 +51,7 @@ function rgbToHsl([r, g, b]: RGB): [number, number, number] {
   return [h, s, l];
 }
 
-function hslToRgb(h: number, s: number, l: number): RGB {
+export function hslToRgb(h: number, s: number, l: number): RGB {
   const c = (1 - Math.abs(2 * l - 1)) * s;
   const x = c * (1 - Math.abs(((h / 60) % 2) - 1));
   const m = l - c / 2;

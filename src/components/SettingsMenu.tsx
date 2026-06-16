@@ -1,7 +1,49 @@
 import type { Settings } from "../hooks/useSettings";
-import type { RGB } from "../types";
+import type { AppMode, RGB } from "../types";
+import { MusicNote, Radio } from "./icons";
 
 const STEPS = [1, 2, 5, 10];
+
+/** Big segmented Music/Radio switch — active side is a white pill, the rest is
+ *  filled with the adaptive accent (matches the requested toggle look). */
+function ModeToggle({
+  value,
+  accent,
+  onChange,
+}: {
+  value: AppMode;
+  accent: RGB;
+  onChange: (m: AppMode) => void;
+}) {
+  const accentCss = `rgb(${accent.join(",")})`;
+  const opts: { key: AppMode; label: string; Icon: typeof MusicNote }[] = [
+    { key: "music", label: "Music", Icon: MusicNote },
+    { key: "radio", label: "Radio", Icon: Radio },
+  ];
+  return (
+    <div
+      className="flex gap-1 rounded-full p-1"
+      style={{ background: accentCss }}
+    >
+      {opts.map(({ key, label, Icon }) => {
+        const active = key === value;
+        return (
+          <button
+            key={key}
+            onClick={() => onChange(key)}
+            className={`flex flex-1 items-center justify-center gap-2 rounded-full px-4 py-2.5 text-sm font-bold transition ${
+              active ? "bg-white shadow-sm" : "text-white/95 hover:bg-white/10"
+            }`}
+            style={active ? { color: accentCss } : undefined}
+          >
+            <Icon className="h-[18px] w-[18px] shrink-0" />
+            {label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
 
 function Toggle({
   label,
@@ -9,17 +51,23 @@ function Toggle({
   value,
   accent,
   onChange,
+  disabled,
 }: {
   label: string;
   desc?: string;
   value: boolean;
   accent: RGB;
   onChange: (v: boolean) => void;
+  disabled?: boolean;
 }) {
   return (
     <button
       onClick={() => onChange(!value)}
-      className="flex w-full items-center justify-between gap-3 rounded-lg px-2 py-2 text-left transition hover:bg-white/5"
+      disabled={disabled}
+      title={disabled ? "Tidak berlaku untuk radio" : undefined}
+      className={`flex w-full items-center justify-between gap-3 rounded-lg px-2 py-2 text-left transition ${
+        disabled ? "cursor-not-allowed opacity-40" : "hover:bg-white/5"
+      }`}
     >
       <div className="min-w-0">
         <div className="text-sm text-white/90">{label}</div>
@@ -39,10 +87,22 @@ function Toggle({
   );
 }
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+function Section({
+  title,
+  children,
+  disabled,
+}: {
+  title: string;
+  children: React.ReactNode;
+  disabled?: boolean;
+}) {
   return (
     <div className="flex flex-col">
-      <div className="px-2 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-wide text-white/40">
+      <div
+        className={`px-2 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-wide ${
+          disabled ? "text-white/25" : "text-white/40"
+        }`}
+      >
         {title}
       </div>
       {children}
@@ -55,19 +115,30 @@ export function SettingsMenu({
   settings,
   onUpdate,
   accent,
+  appMode,
+  onAppMode,
 }: {
   settings: Settings;
   onUpdate: <K extends keyof Settings>(key: K, value: Settings[K]) => void;
   accent: RGB;
+  appMode: AppMode;
+  onAppMode: (m: AppMode) => void;
 }) {
+  // "Pemutaran" toggles are music-player-specific — disable them in radio mode.
+  const musicOnly = appMode === "radio";
   return (
     <div className="flex flex-col">
-      <Section title="Pemutaran">
+      <div className="px-1 pb-1 pt-1">
+        <ModeToggle value={appMode} accent={accent} onChange={onAppMode} />
+      </div>
+
+      <Section title="Pemutaran" disabled={musicOnly}>
         <Toggle
           label="Lanjutkan lagu terakhir"
           desc="Ingat lagu & posisi pemutaran terakhir"
           value={settings.rememberLastPlayed}
           accent={accent}
+          disabled={musicOnly}
           onChange={(v) => onUpdate("rememberLastPlayed", v)}
         />
         <Toggle
@@ -75,6 +146,7 @@ export function SettingsMenu({
           desc="Mode & folder terakhir saat dibuka"
           value={settings.resumeStartupPage}
           accent={accent}
+          disabled={musicOnly}
           onChange={(v) => onUpdate("resumeStartupPage", v)}
         />
         <Toggle
@@ -82,6 +154,7 @@ export function SettingsMenu({
           desc="Gulir otomatis ke lagu yang diputar"
           value={settings.followSong}
           accent={accent}
+          disabled={musicOnly}
           onChange={(v) => onUpdate("followSong", v)}
         />
       </Section>

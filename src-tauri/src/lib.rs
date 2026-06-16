@@ -1,6 +1,8 @@
 // meusic — Rust backend
 // Recursive audio library scanning + tag/cover-art extraction via lofty.
 
+mod radio;
+
 use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
 use lofty::prelude::*;
@@ -263,7 +265,7 @@ fn log_path() -> PathBuf {
 }
 
 /// Append a timestamped line to the log file (best-effort, never panics).
-fn log_line(line: &str) {
+pub(crate) fn log_line(line: &str) {
     let ts = chrono::Local::now().format("%Y-%m-%d %H:%M:%S");
     if let Ok(mut f) = OpenOptions::new().create(true).append(true).open(log_path()) {
         let _ = writeln!(f, "{ts} {line}");
@@ -394,6 +396,9 @@ pub fn run() {
                 builder = builder.icon(icon.clone());
             }
             builder.build(app)?;
+
+            // Start the internet-radio streaming proxy (loopback HTTP server).
+            radio::start(app.handle().clone());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -402,7 +407,8 @@ pub fn run() {
             set_tray_visible,
             log_event,
             load_store,
-            save_store
+            save_store,
+            radio::radio_proxy_port
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

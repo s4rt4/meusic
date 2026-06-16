@@ -7,14 +7,19 @@ import { NowPlayingOverlay } from "./components/NowPlayingOverlay";
 import { AboutDialog } from "./components/AboutDialog";
 import { FolderTree } from "./components/FolderTree";
 import { GroupList } from "./components/GroupList";
+import { RadioList } from "./components/RadioList";
+import { RadioNowPlaying } from "./components/RadioNowPlaying";
+import { StationDialog } from "./components/StationDialog";
 import { Album, Artist } from "./components/icons";
 import { usePlayer } from "./hooks/usePlayer";
 import { useSettings } from "./hooks/useSettings";
+import { useStations } from "./hooks/useStations";
 import { engine } from "./audio/engine";
 import {
   getCover,
   loadStore,
   pickFolder,
+  prefetchRadioProxy,
   saveStore,
   scanFolder,
   setTrayVisible,
@@ -29,6 +34,7 @@ import {
   type MiniCmd,
 } from "./lib/miniState";
 import { extractPalette } from "./lib/colors";
+import { stationPalette } from "./lib/stationColor";
 import { fmtDurationLong } from "./lib/format";
 import { downscaleDataUri } from "./lib/image";
 import {
@@ -39,7 +45,14 @@ import {
   indexTree,
   type FolderNode,
 } from "./lib/views";
-import type { RGB, Track } from "./types";
+import type {
+  AppMode,
+  RadioErrorEvent,
+  RadioMetaEvent,
+  RGB,
+  Station,
+  Track,
+} from "./types";
 
 const DEFAULT_PALETTE: RGB[] = [
   [108, 99, 196],
@@ -83,6 +96,28 @@ async function loadSession(): Promise<Session | null> {
 function App() {
   const player = usePlayer();
   const { settings, update } = useSettings();
+  const stations = useStations();
+
+  // Top-level view (local music vs radio). Persisted to localStorage like
+  // powerSave — a trivial preference, not part of the durable session.
+  const [appMode, setAppMode] = useState<AppMode>(() =>
+    localStorage.getItem("meusic.appMode") === "radio" ? "radio" : "music"
+  );
+  const onAppMode = useCallback((m: AppMode) => {
+    setAppMode(m);
+    localStorage.setItem("meusic.appMode", m);
+    // One audio engine, one thing playing: switching views stops whatever's on
+    // air (and cancels any pending radio reconnect) so the visible bottom bar
+    // always matches what you hear.
+    playerRef.current.stopRadio();
+  }, []);
+
+  // Radio: the add/edit dialog state (the playing station lives in usePlayer).
+  const [stationDialog, setStationDialog] = useState<{
+    open: boolean;
+    editing: Station | null;
+  }>({ open: false, editing: null });
+  const currentStation = player.radioStation;
 
   // The full scanned library — independent of the playback queue, so browsing
   // never disturbs what's playing and vice-versa.
@@ -192,6 +227,19 @@ function App() {
     };
   }, []);
 
+  // Radio stream metadata + errors pushed by the proxy.
+  useEffect(() => {
+    prefetchRadioProxy();
+    const uns: Array<() => void> = [];
+    listen<RadioMetaEvent>("radio:meta", (e) => playerRef.current.applyRadioMeta(e.payload)).then(
+      (u) => uns.push(u)
+    );
+    listen<RadioErrorEvent>("radio:error", (e) =>
+      playerRef.current.applyRadioError(e.payload)
+    ).then((u) => uns.push(u));
+    return () => uns.forEach((u) => u());
+  }, []);
+
   // Persist the session periodically + on hide/close, so resume works.
   useEffect(() => {
     const save = () => {
@@ -284,6 +332,8 @@ function App() {
   const currentPath = player.current?.path;
   useEffect(() => {
     const id = ++reqId.current;
+    // Radio mode drives the palette from the station color (see effect below).
+    if (appMode === "radio") return;
     if (!currentPath) {
       setCoverUrl(null);
       setPalette(DEFAULT_PALETTE);
@@ -318,7 +368,13 @@ function App() {
       }
       void apply(cover);
     })();
-  }, [currentPath]);
+  }, [currentPath, appMode]);
+
+  // Radio mode: the adaptive gradient follows the station's tile color.
+  useEffect(() => {
+    if (appMode !== "radio") return;
+    setPalette(currentStation ? stationPalette(currentStation.name) : DEFAULT_PALETTE);
+  }, [appMode, currentStation]);
 
   // Mini-player: keep a fresh snapshot and broadcast it on change + every 1s.
   miniStateRef.current = {
@@ -354,6 +410,39 @@ function App() {
       setScanning(false);
     }
   }, []);
+
+  // Radio actions.
+  const handlePlayStation = useCallback(
+    (s: Station) => void player.playStation(s),
+    [player]
+  );
+  const handleAddStation = useCallback(
+    () => setStationDialog({ open: true, editing: null }),
+    []
+  );
+  const handleEditStation = useCallback(
+    (s: Station) => setStationDialog({ open: true, editing: s }),
+    []
+  );
+  const handleDeleteStation = useCallback(
+    (s: Station) => {
+      if (!window.confirm(`Hapus stasiun "${s.name}"?`)) return;
+      // Stop it if it's the one playing.
+      if (player.radioStation?.id === s.id) engine.audio.pause();
+      stations.remove(s.id);
+    },
+    [stations, player.radioStation]
+  );
+  const handleSaveStation = useCallback(
+    (name: string, url: string) => {
+      setStationDialog((d) => {
+        if (d.editing) stations.update(d.editing.id, name, url);
+        else stations.add(name, url);
+        return { open: false, editing: null };
+      });
+    },
+    [stations]
+  );
 
   const handleEqChange = useCallback((index: number, gainDb: number) => {
     engine.setEq(index, gainDb);
@@ -424,12 +513,17 @@ function App() {
   // restored on startup.
   const viewTracksRef = useRef(viewTracks);
   viewTracksRef.current = viewTracks;
+  const appModeRef = useRef(appMode);
+  appModeRef.current = appMode;
   const skipFirstSync = useRef(true);
   useEffect(() => {
     if (skipFirstSync.current) {
       skipFirstSync.current = false;
       return;
     }
+    // In radio mode the search box filters stations, not the music library —
+    // don't let it retarget the playback queue.
+    if (appModeRef.current !== "music") return;
     playerRef.current.syncQueue(viewTracksRef.current);
   }, [query]);
 
@@ -512,10 +606,39 @@ function App() {
         settings={settings}
         onUpdateSetting={update}
         onAbout={() => setAboutOpen(true)}
+        appMode={appMode}
+        onAppMode={onAppMode}
       />
 
       <main className="min-h-0 flex-1 overflow-hidden px-6 pb-4 pt-1">
-        {!hasLibrary ? (
+        {appMode === "radio" ? (
+          <div className="flex h-full gap-5">
+            <aside className="glass w-[320px] shrink-0 overflow-hidden rounded-2xl">
+              <RadioList
+                stations={stations.stations}
+                query={query}
+                currentId={currentStation?.id ?? null}
+                accent={accent}
+                onPlay={handlePlayStation}
+                onAdd={handleAddStation}
+                onEdit={handleEditStation}
+                onDelete={handleDeleteStation}
+              />
+            </aside>
+            <RadioNowPlaying
+              station={currentStation}
+              accent={accent}
+              playing={player.radioPlaying}
+              title={player.radioMeta.title}
+              codec={player.radioMeta.codec}
+              bitrate={player.radioMeta.bitrate}
+              error={player.radioError}
+              status={player.radioStatus}
+              active={player.radioPlaying && windowActive && !powerSave}
+              powerSave={powerSave}
+            />
+          </div>
+        ) : !hasLibrary ? (
           <div className="glass flex h-full flex-col items-center justify-center gap-3 rounded-2xl text-center text-white/45">
             <div className="text-5xl">🎵</div>
             <p className="text-sm">
@@ -614,6 +737,17 @@ function App() {
         powerSave={powerSave}
         onTogglePowerSave={togglePowerSave}
         volumeStep={settings.volumeScrollStep}
+        appMode={appMode}
+        radio={{
+          station: currentStation,
+          playing: player.radioPlaying,
+          title: player.radioMeta.title,
+          codec: player.radioMeta.codec,
+          bitrate: player.radioMeta.bitrate,
+          error: player.radioError,
+          status: player.radioStatus,
+          onToggle: player.radioToggle,
+        }}
       />
 
       <NowPlayingOverlay
@@ -626,6 +760,14 @@ function App() {
       />
 
       <AboutDialog open={aboutOpen} onClose={() => setAboutOpen(false)} accent={accent} />
+
+      <StationDialog
+        open={stationDialog.open}
+        station={stationDialog.editing}
+        accent={accent}
+        onClose={() => setStationDialog({ open: false, editing: null })}
+        onSave={handleSaveStation}
+      />
     </div>
   );
 }

@@ -29,3 +29,7 @@ walkdir = "2"
 base64 = "0.22"
 rayon = "1"
 chrono = "0.4"
+# Internet-radio streaming proxy: a loopback HTTP server (tiny_http) that pipes
+# upstream streams (ureq) to the <audio> element, stripping ICY metadata.
+tiny_http = "0.12"
+ureq = "2"
