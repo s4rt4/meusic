@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  A lightweight, native local music player for Windows<br>
+  A lightweight, native music &amp; internet-radio player for Windows<br>
   built with Tauri, React, and Rust.
 </p>
 
@@ -30,10 +30,17 @@ spectrum visualizer. The browsing layout is **inspired by [Dopamine](https://git
 a clean top-bar mode switcher (Folders / Albums / Artists / Songs) with a Windows Explorer–style
 folder tree on the left and a track list on the right.
 
+It also doubles as an **internet-radio player**: a built-in Music / Radio switch turns the same
+window into a station browser with a live now-playing pane (station name, current song via ICY
+metadata, stream quality) and the same adaptive gradient + visualizer. Stations are fully
+editable (add / edit / delete) and stream through a tiny in-process Rust proxy, so the equalizer
+and visualizer work on radio too and reconnect is resilient to network drops.
+
 Because it runs on Tauri (a Rust core with the system WebView), it stays light — roughly a quarter
 of the memory a comparable Electron player would use, with idle animations paused to keep the CPU
-and GPU quiet. It lives in the system tray, resumes your last session on launch, and offers a
-power-save mode for the lightest possible footprint.
+and GPU quiet. It lives in the system tray, resumes your last session on launch, reports
+now-playing to Windows (so the media flyout, media keys, and desktop widgets pick it up), and
+offers a power-save mode for the lightest possible footprint.
 
 ## Screenshots
 
@@ -77,15 +84,32 @@ music changes.
 - **Global search** across title, artist, and album.
 - **Responsive chrome** — the top and bottom bars collapse to icons on narrow windows.
 - **Settings** — toggles for resume, follow-song, tray behavior, and volume step.
+- **Windows media controls (SMTC)** — now-playing (title / artist / album / cover and
+  position) is published to Windows, so the media flyout, keyboard media keys, and desktop
+  now-playing widgets read it; media keys control playback.
+
+### Radio
+
+- **Internet-radio mode** — a Music / Radio switch (top of the Settings menu) turns the window
+  into a station browser: a station list on the left and a now-playing pane on the right with the
+  live spectrum visualizer and adaptive gradient (tinted from the station's color).
+- **Live stream info** — current song via ICY metadata, plus stream codec and bitrate.
+- **Editable stations** — add, edit, and delete stations; saved to disk and seeded from a bundled
+  Indonesian-radio list on first run.
+- **In-process stream proxy** — a small Rust loopback server pipes the stream so the equalizer and
+  visualizer work on radio, plain-`http://` stations play, and ICY metadata is parsed out.
+- **Resilient connection** — exponential-backoff reconnect, a stall watchdog, and automatic
+  recovery when the network returns; permanent failures (bad URL / auth) are surfaced clearly.
 
 ## Tech Stack
 
 | Layer    | Technology                          | Responsibility                                            |
 | -------- | ----------------------------------- | --------------------------------------------------------- |
 | Backend  | Rust (`lofty`, `walkdir`, `rayon`)  | Recursive scan, tag and cover-art extraction (parallel)   |
+| Radio    | Rust (`tiny_http`, `ureq`)          | Loopback streaming proxy: CORS-clean piping + ICY metadata parsing |
 | Bridge   | Tauri 2 (commands, tray, 2 windows) | `scan_folder` / `get_cover`, asset protocol, system tray, main↔mini-player events |
 | Frontend | React + TypeScript + Vite + Tailwind | UI, state, settings, session persistence                 |
-| Audio    | Web Audio API                       | Playback, 6-band equalizer, analyser for the visualizer   |
+| Audio    | Web Audio API + Media Session       | Playback, 6-band equalizer, analyser for the visualizer, Windows SMTC now-playing |
 
 ## Getting Started
 
@@ -116,17 +140,21 @@ The installer is produced under `src-tauri/target/release/bundle/`.
 ```
 src/
   audio/engine.ts        Web Audio graph (equalizer + analyser), singleton
-  hooks/usePlayer.ts     Playback state and queue
+  hooks/usePlayer.ts     Playback state and queue (music + radio, reconnect)
   hooks/useSettings.ts   Persisted user settings
-  lib/                   api, colors (palette), views (tree/groups), format,
-                         image (cover downscale), miniState (mini-player IPC types)
+  hooks/useStations.ts   Radio station list (persisted, seeded from bundled JSON)
+  lib/                   api, colors (palette), stationColor, views (tree/groups),
+                         format, image (cover downscale), miniState (mini-player IPC types)
   components/            TopBar, FolderTree, GroupList, Library, BottomBar,
                          NowPlayingOverlay, GradientBackground, Visualizer, Equalizer,
-                         SettingsMenu, MiniPlayer, icons
-  App.tsx                Main-window orchestration (modes, session, tray, IPC)
+                         SettingsMenu, MiniPlayer, RadioList, RadioNowPlaying,
+                         StationDialog, icons
+  assets/radio-stations.json   Bundled seed station list
+  App.tsx                Main-window orchestration (modes, session, tray, IPC, SMTC)
   main.tsx               Renders App or MiniPlayer based on the window label
 src-tauri/
   src/lib.rs             scan_folder + get_cover commands, system tray, mini-player
+  src/radio.rs           Loopback radio streaming proxy (ICY strip, reconnect-friendly)
   tauri.conf.json        main + miniplayer windows, asset-protocol config
   capabilities/          window/event/dialog permissions
 ```
