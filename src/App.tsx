@@ -376,6 +376,102 @@ function App() {
     setPalette(currentStation ? stationPalette(currentStation.name) : DEFAULT_PALETTE);
   }, [appMode, currentStation]);
 
+  // ---- Windows media controls (SMTC) via the Media Session API ----------
+  // WebView2/Chromium bridges navigator.mediaSession → Windows System Media
+  // Transport Controls, which is what desktop widgets / the media flyout /
+  // media keys read. Without this, only the app name ("meusic") shows.
+
+  // Media-key / flyout action handlers (set once).
+  useEffect(() => {
+    const ms = navigator.mediaSession;
+    if (!ms) return;
+    const set = (a: MediaSessionAction, cb: (() => void) | null) => {
+      try {
+        ms.setActionHandler(a, cb);
+      } catch {
+        /* unsupported action — ignore */
+      }
+    };
+    const toggle = () => {
+      const p = playerRef.current;
+      if (p.mediaKind === "radio") p.radioToggle();
+      else p.toggle();
+    };
+    set("play", toggle);
+    set("pause", toggle);
+    set("nexttrack", () => {
+      const p = playerRef.current;
+      if (p.mediaKind !== "radio") p.next();
+    });
+    set("previoustrack", () => {
+      const p = playerRef.current;
+      if (p.mediaKind !== "radio") p.prev();
+    });
+    return () => {
+      (["play", "pause", "nexttrack", "previoustrack"] as MediaSessionAction[]).forEach((a) =>
+        set(a, null)
+      );
+    };
+  }, []);
+
+  // Now-playing metadata + playback state.
+  useEffect(() => {
+    const ms = navigator.mediaSession;
+    if (!ms) return;
+    if (player.mediaKind === "radio" && player.radioStation) {
+      const st = player.radioStation;
+      const song = player.radioMeta.title;
+      ms.metadata = new MediaMetadata({
+        title: song || st.name,
+        artist: song ? st.name : player.radioMeta.name || "Radio",
+        album: "",
+      });
+      ms.playbackState = player.radioPlaying ? "playing" : "paused";
+    } else if (player.current) {
+      const t = player.current;
+      ms.metadata = new MediaMetadata({
+        title: t.title || "",
+        artist: t.artist || "",
+        album: t.album || "",
+        artwork: coverUrl ? [{ src: coverUrl, sizes: "512x512", type: "image/jpeg" }] : [],
+      });
+      ms.playbackState = player.isPlaying ? "playing" : "paused";
+    } else {
+      ms.metadata = null;
+      ms.playbackState = "none";
+    }
+  }, [
+    player.mediaKind,
+    player.current,
+    player.isPlaying,
+    player.radioStation,
+    player.radioPlaying,
+    player.radioMeta.title,
+    player.radioMeta.name,
+    coverUrl,
+  ]);
+
+  // Timeline position (music only — radio is live, so clear it). Windows
+  // extrapolates between updates, so a per-second refresh keeps it accurate.
+  useEffect(() => {
+    const ms = navigator.mediaSession;
+    if (!ms || typeof ms.setPositionState !== "function") return;
+    const a = engine.audio;
+    try {
+      if (player.mediaKind === "music" && Number.isFinite(a.duration) && a.duration > 0) {
+        ms.setPositionState({
+          duration: a.duration,
+          position: Math.min(Math.max(0, a.currentTime), a.duration),
+          playbackRate: a.playbackRate || 1,
+        });
+      } else {
+        ms.setPositionState();
+      }
+    } catch {
+      /* invalid state (e.g. live stream) — ignore */
+    }
+  }, [player.mediaKind, player.currentTime, player.duration]);
+
   // Mini-player: keep a fresh snapshot and broadcast it on change + every 1s.
   miniStateRef.current = {
     hasTrack: player.current !== null,

@@ -179,6 +179,10 @@ export function usePlayer() {
   }, [playAt]);
 
   const prev = useCallback(() => {
+    if (mediaKindRef.current !== "music") {
+      playAt(indexRef.current >= 0 ? indexRef.current : 0);
+      return;
+    }
     if (engine.audio.currentTime > 3 || indexRef.current <= 0) {
       engine.audio.currentTime = 0;
       return;
@@ -187,6 +191,13 @@ export function usePlayer() {
   }, [playAt]);
 
   const toggle = useCallback(() => {
+    // If the engine currently holds a radio stream (user stopped radio and came
+    // back to the music player), a music play must (re)load the music track —
+    // otherwise engine.audio.play() would just resume the radio source.
+    if (mediaKindRef.current !== "music") {
+      playAt(indexRef.current >= 0 ? indexRef.current : 0);
+      return;
+    }
     if (indexRef.current < 0) {
       playAt(0);
       return;
