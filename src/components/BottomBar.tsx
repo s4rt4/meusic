@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { AppMode, RadioStatus, RepeatMode, RGB, Station, Track } from "../types";
 import { fmtTime } from "../lib/format";
 import { rgb } from "../lib/colors";
@@ -98,6 +98,23 @@ export function BottomBar({
   radio: RadioBarState;
 }) {
   const isRadio = appMode === "radio";
+
+  // Transient volume read-out: show the exact % while the user scrolls or drags
+  // the volume, then fade it out shortly after they stop.
+  const [showVolPct, setShowVolPct] = useState(false);
+  const volTimer = useRef<number | null>(null);
+  const bumpVolPct = () => {
+    setShowVolPct(true);
+    if (volTimer.current != null) window.clearTimeout(volTimer.current);
+    volTimer.current = window.setTimeout(() => setShowVolPct(false), 1000);
+  };
+  useEffect(
+    () => () => {
+      if (volTimer.current != null) window.clearTimeout(volTimer.current);
+    },
+    []
+  );
+
   const pct = duration > 0 ? (currentTime / duration) * 100 : 0;
   const fill = (p: number) =>
     `linear-gradient(to right, ${rgb(accent, 0.95)} ${p}%, rgba(255,255,255,0.16) ${p}%)`;
@@ -308,13 +325,22 @@ export function BottomBar({
           </div>
 
           <div
-            className="flex shrink-0 items-center gap-2"
+            className="relative flex shrink-0 items-center gap-2"
             onWheel={(e) => {
               const d = (e.deltaY < 0 ? 1 : -1) * (volumeStep / 100);
               onVolume(Math.min(1, Math.max(0, volume + d)));
+              bumpVolPct();
             }}
             title={`Scroll untuk ubah volume (${volumeStep}%)`}
           >
+            {/* Live volume read-out: appears while changing, then fades out. */}
+            <div
+              className={`glass-strong pointer-events-none absolute bottom-full right-0 mb-2 rounded-full px-2 py-0.5 text-xs font-semibold tabular-nums text-white shadow-lg transition-opacity duration-200 ${
+                showVolPct ? "opacity-100" : "opacity-0"
+              }`}
+            >
+              {Math.round(volume * 100)}%
+            </div>
             <span className="shrink-0 text-white/60">
               {volume === 0 ? (
                 <VolumeMute className="h-5 w-5" />
@@ -330,7 +356,10 @@ export function BottomBar({
               max={1}
               step={0.01}
               value={volume}
-              onChange={(e) => onVolume(Number(e.target.value))}
+              onChange={(e) => {
+                onVolume(Number(e.target.value));
+                bumpVolPct();
+              }}
               className="h-1 w-24 rounded-full"
               style={{ background: fill(volume * 100) }}
             />

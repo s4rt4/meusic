@@ -215,6 +215,14 @@ export function usePlayer() {
     setCurrentTime(t);
   }, []);
 
+  /** Replace a track in the queue (and, if it's the one loaded, the now-playing
+   *  display) with an edited copy — after its tags were rewritten on disk — so
+   *  the bottom bar / SMTC update without reloading or interrupting playback. */
+  const updateTrackMeta = useCallback((updated: Track) => {
+    setQueue((q) => q.map((t) => (t.path === updated.path ? updated : t)));
+    setCurrentTrack((c) => (c && c.path === updated.path ? updated : c));
+  }, []);
+
   const cycleRepeat = useCallback(() => {
     setRepeat((r) => (r === "off" ? "all" : r === "all" ? "one" : "off"));
   }, []);
@@ -469,6 +477,7 @@ export function usePlayer() {
     seek,
     setVolume,
     cycleRepeat,
+    updateTrackMeta,
     toggleShuffle: () => setShuffle((s) => !s),
     // Radio
     mediaKind,

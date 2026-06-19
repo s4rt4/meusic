@@ -5,9 +5,10 @@ mod radio;
 
 use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
+use lofty::config::WriteOptions;
 use lofty::prelude::*;
 use lofty::read_from_path;
-use lofty::tag::ItemKey;
+use lofty::tag::{ItemKey, Tag};
 use rayon::prelude::*;
 use serde::Serialize;
 use std::fs::OpenOptions;
@@ -254,6 +255,61 @@ fn get_cover(path: String) -> Option<String> {
     folder_cover(p)
 }
 
+/// Write edited metadata back into the file's tag and return the freshly re-read
+/// Track. We mutate the file's EXISTING primary tag (rather than replacing it)
+/// so embedded cover art and any other frames are preserved; a brand-new tag of
+/// the file's native type is created only when the file had no tags at all.
+/// Empty album-artist / track number clear those fields rather than writing
+/// blanks. An empty `title` is rejected so a track never loses its name.
+#[tauri::command]
+fn write_tags(
+    path: String,
+    title: String,
+    artist: String,
+    album: String,
+    album_artist: String,
+    track_no: u32,
+) -> Result<Track, String> {
+    let title = title.trim();
+    if title.is_empty() {
+        return Err("Judul tidak boleh kosong".into());
+    }
+    let p = Path::new(&path);
+
+    let mut tagged = read_from_path(p).map_err(|e| e.to_string())?;
+    if tagged.primary_tag_mut().is_none() {
+        let tt = tagged.primary_tag_type();
+        tagged.insert_tag(Tag::new(tt));
+    }
+    let tag = tagged
+        .primary_tag_mut()
+        .ok_or("Format ini tidak mendukung penulisan tag")?;
+
+    tag.set_title(title.to_string());
+    tag.set_artist(artist.trim().to_string());
+    tag.set_album(album.trim().to_string());
+
+    let aa = album_artist.trim();
+    if aa.is_empty() {
+        tag.remove_key(&ItemKey::AlbumArtist);
+    } else {
+        tag.insert_text(ItemKey::AlbumArtist, aa.to_string());
+    }
+
+    if track_no == 0 {
+        tag.remove_track();
+    } else {
+        tag.set_track(track_no);
+    }
+
+    tagged.save_to_path(p, WriteOptions::default()).map_err(|e| {
+        log_line(&format!("[ERROR] write_tags failed for {path}: {e}"));
+        e.to_string()
+    })?;
+
+    Ok(read_track(p))
+}
+
 // ---- Crash / error logging --------------------------------------------------
 
 /// Log file at %LOCALAPPDATA%\meusic\meusic.log (falls back to the cwd).
@@ -404,6 +460,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             scan_folder,
             get_cover,
+            write_tags,
             set_tray_visible,
             log_event,
             load_store,

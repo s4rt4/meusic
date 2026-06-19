@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, type MouseEvent } from "react";
 import type { Track } from "../types";
 import { fmtTime } from "../lib/format";
 
@@ -12,6 +12,7 @@ export function Library({
   currentPath,
   isPlaying,
   onPlay,
+  onTrackContextMenu,
   emptyMessage,
   followSong,
 }: {
@@ -19,6 +20,7 @@ export function Library({
   currentPath: string | undefined;
   isPlaying: boolean;
   onPlay: (index: number) => void;
+  onTrackContextMenu?: (e: MouseEvent, track: Track) => void;
   emptyMessage?: string;
   followSong: boolean;
 }) {
@@ -47,6 +49,7 @@ export function Library({
             key={t.path + pos}
             ref={active ? activeRef : undefined}
             onClick={() => onPlay(pos)}
+            onContextMenu={(e) => onTrackContextMenu?.(e, t)}
             className={`group flex items-center gap-3 rounded-xl px-3 py-2 text-left transition ${
               active ? "bg-white/15" : "hover:bg-white/8"
             }`}

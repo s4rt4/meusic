@@ -22,6 +22,21 @@ export async function getCover(path: string): Promise<string | null> {
   return invoke<string | null>("get_cover", { path });
 }
 
+/** Editable tag fields written back into a file by {@link writeTags}. */
+export interface TrackEdit {
+  title: string;
+  artist: string;
+  album: string;
+  albumArtist: string;
+  trackNo: number;
+}
+
+/** Write edited metadata into the file's tag (preserves cover art) and return
+ *  the freshly re-read Track. Rejects if the backend write fails. */
+export async function writeTags(path: string, edit: TrackEdit): Promise<Track> {
+  return invoke<Track>("write_tags", { path, ...edit });
+}
+
 /** Turn an absolute file path into an asset URL the <audio> element can play. */
 export function trackUrl(path: string): string {
   return convertFileSrc(path);

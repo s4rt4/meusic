@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
 import { GradientBackground } from "./components/GradientBackground";
 import { Library } from "./components/Library";
 import { TopBar, type Mode } from "./components/TopBar";
@@ -10,6 +10,8 @@ import { GroupList } from "./components/GroupList";
 import { RadioList } from "./components/RadioList";
 import { RadioNowPlaying } from "./components/RadioNowPlaying";
 import { StationDialog } from "./components/StationDialog";
+import { MetadataDialog } from "./components/MetadataDialog";
+import { TrackContextMenu } from "./components/TrackContextMenu";
 import { Album, Artist } from "./components/icons";
 import { usePlayer } from "./hooks/usePlayer";
 import { useSettings } from "./hooks/useSettings";
@@ -23,6 +25,8 @@ import {
   saveStore,
   scanFolder,
   setTrayVisible,
+  writeTags,
+  type TrackEdit,
 } from "./lib/api";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { emit, listen } from "@tauri-apps/api/event";
@@ -123,6 +127,14 @@ function App() {
   // never disturbs what's playing and vice-versa.
   const [library, setLibrary] = useState<Track[]>([]);
   const [rootPath, setRootPath] = useState<string | null>(null);
+
+  // Tag editing: the right-click menu (anchored at the cursor) and the dialog.
+  const [trackMenu, setTrackMenu] = useState<{
+    track: Track;
+    x: number;
+    y: number;
+  } | null>(null);
+  const [editTrack, setEditTrack] = useState<Track | null>(null);
 
   const [mode, setMode] = useState<Mode>("folders");
   const [query, setQuery] = useState("");
@@ -507,6 +519,24 @@ function App() {
     }
   }, []);
 
+  // Tag editing actions.
+  const handleTrackContextMenu = useCallback((e: MouseEvent, track: Track) => {
+    e.preventDefault();
+    setTrackMenu({ track, x: e.clientX, y: e.clientY });
+  }, []);
+
+  // Persist edited tags to disk, then patch the in-memory track (library +
+  // playback queue) so the UI updates without a full rescan. Errors propagate
+  // to the dialog, which keeps itself open and shows the message.
+  const handleSaveMeta = useCallback(
+    async (path: string, edit: TrackEdit) => {
+      const updated = await writeTags(path, edit);
+      setLibrary((lib) => lib.map((t) => (t.path === path ? updated : t)));
+      playerRef.current.updateTrackMeta(updated);
+    },
+    []
+  );
+
   // Radio actions.
   const handlePlayStation = useCallback(
     (s: Station) => void player.playStation(s),
@@ -793,6 +823,7 @@ function App() {
                   currentPath={currentPath}
                   isPlaying={player.isPlaying}
                   onPlay={onPlay}
+                  onTrackContextMenu={handleTrackContextMenu}
                   emptyMessage={
                     searching
                       ? "Tidak ada hasil."
@@ -863,6 +894,23 @@ function App() {
         accent={accent}
         onClose={() => setStationDialog({ open: false, editing: null })}
         onSave={handleSaveStation}
+      />
+
+      {trackMenu && (
+        <TrackContextMenu
+          x={trackMenu.x}
+          y={trackMenu.y}
+          onEdit={() => setEditTrack(trackMenu.track)}
+          onClose={() => setTrackMenu(null)}
+        />
+      )}
+
+      <MetadataDialog
+        open={editTrack !== null}
+        track={editTrack}
+        accent={accent}
+        onClose={() => setEditTrack(null)}
+        onSave={handleSaveMeta}
       />
     </div>
   );
