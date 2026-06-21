@@ -344,7 +344,15 @@ fn write_tags(
     // Write atomically: tag a temp copy, then rename it over the original. The
     // rename is the commit, so a crash / power loss / disk-full mid-write leaves
     // the original file (and its embedded art) intact instead of truncated.
-    let tmp = p.with_extension("meusic-tmp");
+    //
+    // Keep the original extension *last* (e.g. `song.meusic-tmp.mp3`) so lofty can
+    // still detect the format from it. Naming the temp `song.meusic-tmp` strips the
+    // `.mp3` hint and forces content-sniffing, which fails on files that have junk
+    // before the first frame ("No format could be determined from the provided file").
+    let tmp = match p.extension().and_then(|e| e.to_str()) {
+        Some(ext) if !ext.is_empty() => p.with_extension(format!("meusic-tmp.{ext}")),
+        _ => p.with_extension("meusic-tmp"),
+    };
     std::fs::copy(p, &tmp).map_err(|e| e.to_string())?;
 
     let result = (|| -> Result<(), String> {
