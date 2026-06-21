@@ -44,9 +44,18 @@ struct RadioError {
     permanent: bool,
 }
 
-/// 4xx auth / not-found errors are permanent; everything else is worth retrying.
+/// 4xx auth / not-found errors are permanent; so are a bad host / malformed or
+/// unsupported URL (they'll never succeed — stop the retry loop). Connection
+/// failures stay transient since a server can come back.
 fn is_permanent(e: &ureq::Error) -> bool {
-    matches!(e, ureq::Error::Status(401 | 403 | 404 | 410, _))
+    match e {
+        ureq::Error::Status(401 | 403 | 404 | 410, _) => true,
+        ureq::Error::Transport(t) => matches!(
+            t.kind(),
+            ureq::ErrorKind::Dns | ureq::ErrorKind::InvalidUrl | ureq::ErrorKind::UnknownScheme
+        ),
+        _ => false,
+    }
 }
 
 /// Turn a ureq error into a short, human-readable Indonesian message.
@@ -92,6 +101,13 @@ fn handle(app: AppHandle, request: tiny_http::Request) {
             return;
         }
     };
+    // Only proxy real remote streams: reject anything that isn't http(s) so the
+    // loopback proxy can't be pointed at other schemes / local targets.
+    let lower = stream_url.to_ascii_lowercase();
+    if !(lower.starts_with("http://") || lower.starts_with("https://")) {
+        let _ = request.respond(Response::empty(StatusCode(400)));
+        return;
+    }
 
     let agent = ureq::AgentBuilder::new()
         .timeout_connect(Duration::from_secs(8))

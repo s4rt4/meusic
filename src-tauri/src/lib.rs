@@ -14,6 +14,14 @@ use serde::Serialize;
 use std::fs::OpenOptions;
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
+
+/// Cap cover images we read into memory + base64 over IPC, so a giant cover.png
+/// or embedded picture can't spike memory / freeze the bridge.
+const MAX_COVER_BYTES: u64 = 12 * 1024 * 1024;
+
+/// Serializes tag writes so two concurrent saves can't interleave on a file.
+static TAG_WRITE_LOCK: Mutex<()> = Mutex::new(());
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::Manager;
@@ -126,14 +134,35 @@ fn read_track(path: &Path) -> Track {
 /// metadata in parallel, and return them sorted by album-artist → album →
 /// track number → title so albums group together naturally.
 #[tauri::command]
-fn scan_folder(path: String) -> Vec<Track> {
-    let files: Vec<_> = WalkDir::new(&path)
+async fn scan_folder(path: String) -> Vec<Track> {
+    // Run off the command thread: a large library / network drive can take
+    // many seconds, and a sync command would block the UI while it walks.
+    tauri::async_runtime::spawn_blocking(move || scan_folder_blocking(&path))
+        .await
+        .unwrap_or_default()
+}
+
+fn scan_folder_blocking(path: &str) -> Vec<Track> {
+    let mut walk_errors = 0usize;
+    let files: Vec<_> = WalkDir::new(path)
         .follow_links(false)
         .into_iter()
-        .filter_map(|e| e.ok())
+        .filter_map(|e| match e {
+            Ok(entry) => Some(entry),
+            // Don't let one unreadable dir (permissions/IO) abort the whole
+            // scan — skip it, but log so a silently-missing folder is traceable.
+            Err(err) => {
+                walk_errors += 1;
+                log_line(&format!("[WARN] scan skip: {err}"));
+                None
+            }
+        })
         .filter(|e| e.file_type().is_file() && is_audio(e.path()))
         .map(|e| e.into_path())
         .collect();
+    if walk_errors > 0 {
+        log_line(&format!("[INFO] scan_folder: {walk_errors} entries skipped"));
+    }
 
     let mut tracks: Vec<Track> = files.par_iter().map(|p| read_track(p)).collect();
 
@@ -167,7 +196,7 @@ const COVER_NAMES: &[&str] = &[
     "artwork",
 ];
 
-fn image_mime(path: &Path) -> &'static str {
+fn image_mime_ext(path: &Path) -> &'static str {
     match path
         .extension()
         .and_then(|e| e.to_str())
@@ -182,14 +211,44 @@ fn image_mime(path: &Path) -> &'static str {
     }
 }
 
+/// Detect the image type from magic bytes (so a mislabeled `.jpg` that's really
+/// PNG/WebP gets the right MIME and the <img> can decode it), falling back to
+/// the extension when the signature is unrecognized.
+fn image_mime(bytes: &[u8], path: &Path) -> &'static str {
+    if bytes.len() >= 12 {
+        if bytes.starts_with(&[0x89, b'P', b'N', b'G']) {
+            return "image/png";
+        }
+        if bytes.starts_with(&[0xFF, 0xD8, 0xFF]) {
+            return "image/jpeg";
+        }
+        if bytes.starts_with(b"GIF8") {
+            return "image/gif";
+        }
+        if &bytes[0..2] == b"BM" {
+            return "image/bmp";
+        }
+        if &bytes[0..4] == b"RIFF" && &bytes[8..12] == b"WEBP" {
+            return "image/webp";
+        }
+    }
+    image_mime_ext(path)
+}
+
 fn file_as_data_uri(path: &Path) -> Option<String> {
+    // Reject oversized covers up front (metadata read, no allocation) so a huge
+    // image can't blow up memory / the IPC payload.
+    let len = std::fs::metadata(path).ok()?.len();
+    if len == 0 || len > MAX_COVER_BYTES {
+        return None;
+    }
     let bytes = std::fs::read(path).ok()?;
     if bytes.is_empty() {
         return None;
     }
     Some(format!(
         "data:{};base64,{}",
-        image_mime(path),
+        image_mime(&bytes, path),
         STANDARD.encode(&bytes)
     ))
 }
@@ -238,15 +297,18 @@ fn folder_cover(audio_path: &Path) -> Option<String> {
 fn get_cover(path: String) -> Option<String> {
     let p = Path::new(&path);
 
-    // 1. Embedded picture in the tags.
+    // 1. Embedded picture in the tags (skip absurdly large ones — fall through
+    //    to a folder image rather than base64-ing tens of MB over the bridge).
     if let Ok(tagged) = read_from_path(p) {
         if let Some(tag) = tagged.primary_tag().or_else(|| tagged.first_tag()) {
             if let Some(pic) = tag.pictures().first() {
-                let mime = pic
-                    .mime_type()
-                    .map(|m| m.as_str().to_string())
-                    .unwrap_or_else(|| "image/jpeg".to_string());
-                return Some(format!("data:{};base64,{}", mime, STANDARD.encode(pic.data())));
+                if (pic.data().len() as u64) <= MAX_COVER_BYTES {
+                    let mime = pic
+                        .mime_type()
+                        .map(|m| m.as_str().to_string())
+                        .unwrap_or_else(|| "image/jpeg".to_string());
+                    return Some(format!("data:{};base64,{}", mime, STANDARD.encode(pic.data())));
+                }
             }
         }
     }
@@ -276,34 +338,56 @@ fn write_tags(
     }
     let p = Path::new(&path);
 
-    let mut tagged = read_from_path(p).map_err(|e| e.to_string())?;
-    if tagged.primary_tag_mut().is_none() {
-        let tt = tagged.primary_tag_type();
-        tagged.insert_tag(Tag::new(tt));
-    }
-    let tag = tagged
-        .primary_tag_mut()
-        .ok_or("Format ini tidak mendukung penulisan tag")?;
+    // Serialize writes so two concurrent saves can't interleave on one file.
+    let _guard = TAG_WRITE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
 
-    tag.set_title(title.to_string());
-    tag.set_artist(artist.trim().to_string());
-    tag.set_album(album.trim().to_string());
+    // Write atomically: tag a temp copy, then rename it over the original. The
+    // rename is the commit, so a crash / power loss / disk-full mid-write leaves
+    // the original file (and its embedded art) intact instead of truncated.
+    let tmp = p.with_extension("meusic-tmp");
+    std::fs::copy(p, &tmp).map_err(|e| e.to_string())?;
 
-    let aa = album_artist.trim();
-    if aa.is_empty() {
-        tag.remove_key(&ItemKey::AlbumArtist);
-    } else {
-        tag.insert_text(ItemKey::AlbumArtist, aa.to_string());
-    }
+    let result = (|| -> Result<(), String> {
+        let mut tagged = read_from_path(&tmp).map_err(|e| e.to_string())?;
+        if tagged.primary_tag_mut().is_none() {
+            let tt = tagged.primary_tag_type();
+            tagged.insert_tag(Tag::new(tt));
+        }
+        let tag = tagged
+            .primary_tag_mut()
+            .ok_or("Format ini tidak mendukung penulisan tag")?;
 
-    if track_no == 0 {
-        tag.remove_track();
-    } else {
-        tag.set_track(track_no);
-    }
+        tag.set_title(title.to_string());
+        tag.set_artist(artist.trim().to_string());
+        tag.set_album(album.trim().to_string());
 
-    tagged.save_to_path(p, WriteOptions::default()).map_err(|e| {
+        let aa = album_artist.trim();
+        if aa.is_empty() {
+            tag.remove_key(&ItemKey::AlbumArtist);
+        } else {
+            tag.insert_text(ItemKey::AlbumArtist, aa.to_string());
+        }
+
+        if track_no == 0 {
+            tag.remove_track();
+        } else {
+            tag.set_track(track_no);
+        }
+
+        tagged
+            .save_to_path(&tmp, WriteOptions::default())
+            .map_err(|e| e.to_string())
+    })();
+
+    if let Err(e) = result {
+        let _ = std::fs::remove_file(&tmp);
         log_line(&format!("[ERROR] write_tags failed for {path}: {e}"));
+        return Err(e);
+    }
+
+    std::fs::rename(&tmp, p).map_err(|e| {
+        let _ = std::fs::remove_file(&tmp);
+        log_line(&format!("[ERROR] write_tags rename failed for {path}: {e}"));
         e.to_string()
     })?;
 
@@ -392,6 +476,15 @@ fn set_tray_visible(app: tauri::AppHandle, visible: bool) {
 
 /// Path to `<name>.json` in the per-app config dir (%APPDATA%\com.sarta.meusic).
 fn store_path(app: &tauri::AppHandle, name: &str) -> Option<PathBuf> {
+    // Only allow simple store names so a crafted `name` (e.g. "..\\..\\x")
+    // can't traverse out of the config dir.
+    if name.is_empty()
+        || !name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+    {
+        return None;
+    }
     let dir = app.path().app_config_dir().ok()?;
     let _ = std::fs::create_dir_all(&dir);
     Some(dir.join(format!("{name}.json")))
@@ -407,8 +500,15 @@ fn load_store(app: tauri::AppHandle, name: String) -> Option<String> {
 /// Write a named store's contents to disk (immediately, no buffering).
 #[tauri::command]
 fn save_store(app: tauri::AppHandle, name: String, contents: String) -> Result<(), String> {
-    let p = store_path(&app, &name).ok_or("no config dir")?;
-    std::fs::write(p, contents).map_err(|e| e.to_string())
+    let p = store_path(&app, &name).ok_or("invalid store name")?;
+    // Atomic write: a crash mid-write would otherwise leave a truncated/corrupt
+    // JSON that fails to parse on next launch (losing settings/session).
+    let tmp = p.with_extension("json.tmp");
+    std::fs::write(&tmp, contents.as_bytes()).map_err(|e| e.to_string())?;
+    std::fs::rename(&tmp, &p).map_err(|e| {
+        let _ = std::fs::remove_file(&tmp);
+        e.to_string()
+    })
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]

@@ -330,8 +330,16 @@ function App() {
           }
         }
         if (settings.rememberLastPlayed && s.trackPath) {
-          const idx = tracks.findIndex((t) => t.path === s.trackPath);
-          if (idx >= 0) player.loadInList(tracks, idx, s.position || 0);
+          // Scope the resume queue to the track's OWN folder, not the whole
+          // library. Otherwise letting it auto-advance walks across folders —
+          // the opposite of clicking a song (which queues only its folder view).
+          const folderNorm = s.trackPath
+            .replace(/\\/g, "/")
+            .replace(/\/[^/]*$/, "");
+          const node = indexTree(buildFolderTree(tracks, s.rootPath)).get(folderNorm);
+          const list = node?.tracks ?? tracks;
+          const idx = list.findIndex((t) => t.path === s.trackPath);
+          if (idx >= 0) player.loadInList(list, idx, s.position || 0);
         }
       } finally {
         setScanning(false);
@@ -437,6 +445,7 @@ function App() {
         title: song || st.name,
         artist: song ? st.name : player.radioMeta.name || "Radio",
         album: "",
+        artwork: [], // clear any stale music cover left in the SMTC flyout
       });
       ms.playbackState = player.radioPlaying ? "playing" : "paused";
     } else if (player.current) {
@@ -553,11 +562,13 @@ function App() {
   const handleDeleteStation = useCallback(
     (s: Station) => {
       if (!window.confirm(`Hapus stasiun "${s.name}"?`)) return;
-      // Stop it if it's the one playing.
-      if (player.radioStation?.id === s.id) engine.audio.pause();
+      // If it's the one playing, stop it PROPERLY — stopRadio also cancels any
+      // pending reconnect timer. A bare pause() leaves a scheduled reconnect
+      // that would re-tune the station we just deleted.
+      if (player.radioStation?.id === s.id) player.stopRadio();
       stations.remove(s.id);
     },
-    [stations, player.radioStation]
+    [stations, player]
   );
   const handleSaveStation = useCallback(
     (name: string, url: string) => {

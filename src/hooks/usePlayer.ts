@@ -96,6 +96,11 @@ export function usePlayer() {
     engine.ensureGraph();
     engine.audio.src = trackUrl(q[i].path);
     engine.audio.play().catch((e) => logPlaybackError("play() rejected", e));
+    // Mirror the index into the ref synchronously: next()/prev()/ended read
+    // indexRef BEFORE React commits this setState, so without it a quick second
+    // navigation (double-Next, media-key spam, ended racing a manual next, or
+    // shuffle's "avoid current" check) would compute from a stale index.
+    indexRef.current = i;
     setIndex(i);
     setCurrentTrack(q[i]);
   }, []);
@@ -115,6 +120,7 @@ export function usePlayer() {
     engine.ensureGraph();
     engine.audio.src = trackUrl(list[i].path);
     engine.audio.play().catch((e) => logPlaybackError("play() rejected", e));
+    indexRef.current = i; // keep next/prev in sync before the state commit
     setIndex(i);
     setCurrentTrack(list[i]);
   }, []);
@@ -147,14 +153,19 @@ export function usePlayer() {
     queueRef.current = list;
     setQueue(list);
     const a = engine.audio;
-    a.src = trackUrl(list[i].path);
+    const src = trackUrl(list[i].path);
+    a.src = src;
     if (position > 0) {
       const seek = () => {
-        a.currentTime = position;
         a.removeEventListener("loadedmetadata", seek);
+        // If the user started a different track before this one's metadata
+        // arrived, a.src has changed — don't seek the new track to our position.
+        if (a.src !== src) return;
+        a.currentTime = position;
       };
       a.addEventListener("loadedmetadata", seek);
     }
+    indexRef.current = i;
     setIndex(i);
     setCurrentTrack(list[i]);
     setPlaying(false);
@@ -211,8 +222,13 @@ export function usePlayer() {
   }, [playAt]);
 
   const seek = useCallback((t: number) => {
-    engine.audio.currentTime = t;
-    setCurrentTime(t);
+    // Clamp to a valid range so a NaN or out-of-bounds value (e.g. a raw
+    // mini-player command) can't throw on assignment or store garbage.
+    const d = engine.audio.duration;
+    let target = Number.isFinite(t) ? Math.max(0, t) : 0;
+    if (Number.isFinite(d) && d > 0) target = Math.min(target, d);
+    engine.audio.currentTime = target;
+    setCurrentTime(target);
   }, []);
 
   /** Replace a track in the queue (and, if it's the one loaded, the now-playing
@@ -355,16 +371,23 @@ export function usePlayer() {
     const onTime = () => {
       lastProgressRef.current = performance.now(); // feeds the stall watchdog
       setCurrentTime(a.currentTime);
+      // Real audio is flowing → THIS attempt actually succeeded, so clear the
+      // backoff. Doing it here (not in onPlay) is the difference between
+      // escalating retries and a tight 2s reconnect loop: `play` fires at the
+      // START of every attempt, before any data arrives, so resetting there
+      // pins the backoff at its minimum for a stream that connects then drops.
+      if (mediaKindRef.current === "radio") {
+        if (radioRetryRef.current !== 0) radioRetryRef.current = 0;
+        if (radioErrorRef.current) {
+          radioErrorRef.current = null;
+          setRadioError(null);
+        }
+      }
     };
     const onMeta = () => setDuration(a.duration || 0);
     const onPlay = () => {
       setPlaying(true);
-      if (mediaKindRef.current === "radio") {
-        radioRetryRef.current = 0;
-        radioErrorRef.current = null;
-        setRadioError(null);
-        setRadioStatus("playing");
-      }
+      if (mediaKindRef.current === "radio") setRadioStatus("playing");
     };
     const onPlaying = () => {
       if (mediaKindRef.current === "radio") setRadioStatus("playing");
@@ -374,7 +397,13 @@ export function usePlayer() {
       if (mediaKindRef.current === "radio" && !radioErrorRef.current)
         setRadioStatus("buffering");
     };
-    const onPause = () => setPlaying(false);
+    const onPause = () => {
+      setPlaying(false);
+      // A pause from outside radioToggle (OS media key, SMTC, mini-player) must
+      // also kill any pending reconnect, or the radio resumes itself after the
+      // user stopped it.
+      if (mediaKindRef.current === "radio") cancelRadioRetry();
+    };
     const onEnd = () => {
       // A live radio stream shouldn't "end" — treat it as a drop and reconnect.
       if (mediaKindRef.current === "radio") {
@@ -382,6 +411,7 @@ export function usePlayer() {
         return;
       }
       if (repeatRef.current === "one") {
+        engine.ensureGraph(); // resume the graph in case the context suspended
         a.currentTime = 0;
         a.play().catch(() => {});
         return;
@@ -415,7 +445,7 @@ export function usePlayer() {
       a.removeEventListener("ended", onEnd);
       a.removeEventListener("error", onError);
     };
-  }, [next, scheduleRadioReconnect]);
+  }, [next, scheduleRadioReconnect, cancelRadioRetry]);
 
   // Stall watchdog: radio "playing" but no progress for RADIO_STALL_MS → the
   // stream went silent without firing an error; force a backoff reconnect.
@@ -453,7 +483,9 @@ export function usePlayer() {
   }, [cancelRadioRetry]);
 
   useEffect(() => {
-    engine.audio.volume = volume;
+    // Guard the assignment: HTMLMediaElement.volume throws for values outside
+    // 0..1 (a raw mini-player/volume command could send one).
+    engine.audio.volume = Math.min(1, Math.max(0, volume));
   }, [volume]);
 
   return {
